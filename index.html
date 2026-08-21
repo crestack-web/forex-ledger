@@ -2516,7 +2516,6 @@ No generic advice that ignores the numbers.`;
     return out;
   }
 
-  function formatMarketSnapshot
   function formatMarketSnapshot(q){
     if(!q || q.error) return q && q.error ? String(q.error) : 'No market data';
     const p = q.pair || '';
