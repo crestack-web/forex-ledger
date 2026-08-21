@@ -50,3 +50,15 @@ Personal use. Do what you want with it.
    - Quotes go through `/api/fx` so the key never ships to the browser  
 
 Free tier is rate-limited (~25 requests/day). Prefer 1–2 watchlist pairs.
+
+
+## Mistral (market tips)
+
+1. **Vercel:** set env `MISTRAL_API_KEY` — calls go through `/api/mistral`
+2. **Local:** paste key in Analyzer (optional fallback)
+
+Analyzer loads Alpha Vantage snapshot for the selected pair, then asks Mistral for structure tips (not buy/sell orders).
+
+## Home watchlist
+
+Pairs from **Sessions** show on the welcome page with last rate and day range when quotes are available.

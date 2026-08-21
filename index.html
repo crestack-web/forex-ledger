@@ -304,6 +304,28 @@
   .session-row label{ flex:1; color:var(--chalk-dim); text-transform:none; letter-spacing:0; font-family:Inter,sans-serif; font-size:13.5px; }
   .disclaimer{ font-size:11.5px; color:var(--dim); line-height:1.5; margin-top:12px; }
 
+
+  .card-watch{
+    background:var(--surface); border:1px solid var(--line); border-radius:3px;
+    padding:16px 18px; margin-bottom:20px;
+  }
+  .watch-grid{
+    display:grid; grid-template-columns:repeat(auto-fill, minmax(160px, 1fr)); gap:10px;
+  }
+  .watch-tile{
+    background:var(--surface-2); border:1px solid var(--line); border-radius:3px;
+    padding:12px 14px; min-width:0; cursor:pointer; transition:border-color .15s;
+  }
+  .watch-tile:hover{ border-color:var(--gold-dim); }
+  .watch-pair{ font-family:'Fraunces', serif; font-size:16px; margin-bottom:4px; }
+  .watch-rate{ font-family:'Fraunces', serif; font-size:20px; font-variant-numeric:tabular-nums; }
+  .watch-meta{ font-family:'IBM Plex Mono', monospace; font-size:10.5px; color:var(--dim); margin-top:4px; }
+  .watch-empty{ color:var(--dim); font-size:13.5px; line-height:1.5; grid-column:1 / -1; }
+  @media (max-width:720px){
+    .watch-grid{ grid-template-columns:1fr 1fr; }
+    .watch-rate{ font-size:17px; }
+  }
+
   /* ── Mobile: modals become full pages, no overflow ── */
   @media (max-width: 720px){
     .wrap{ padding:20px 16px 100px; }
@@ -483,6 +505,14 @@
     <div class="stat"><div class="stat-label">Avg R</div><div class="stat-value" id="statAvg">—</div></div>
   </div>
 
+  
+  <div class="card-watch" id="watchStrip">
+    <div class="section-label" style="margin-bottom:12px;">Watchlist</div>
+    <div class="watch-grid" id="watchGrid">
+      <div class="watch-empty">Open <strong>Sessions</strong> to pick pairs. Quotes appear after you add an Alpha Vantage key (or deploy on Vercel).</div>
+    </div>
+  </div>
+
   <div class="alert-banner" id="sessionBanner"></div>
 
   <div class="controls">
@@ -502,7 +532,7 @@
       </div>
       <button class="btn-ghost" id="openCalc">Risk calc</button>
       <button class="btn-ghost" id="openSessions">Sessions</button>
-      <button class="btn-ghost" id="openAnalyze">Analyze</button>
+      <button class="btn-ghost" id="openAnalyze">Analyzer</button>
       <button class="btn-ghost" id="openPlaybook">Playbook</button>
       <button class="btn-ghost" id="openReview">Weekly review</button>
       <button class="btn-ghost" id="openExport">Export</button>
@@ -816,7 +846,7 @@
     <div class="field full" style="margin-top:16px;">
       <label>Alpha Vantage API key (optional)</label>
       <input id="av_key" type="password" placeholder="Stored only in this browser" autocomplete="off" />
-      <p class="disclaimer">Free tier is limited (~25 calls/day). On Vercel, prefer a serverless route with env ALPHA_VANTAGE_API so the key is not in the client. Never commit the key to Git.</p>
+      <p class="disclaimer">Free tier is limited (~25 calls/day). On Vercel, prefer a serverless route so the key is not in the client. Never commit the key to Git.</p>
     </div>
 
     <div class="field full" style="margin-top:12px;">
@@ -844,8 +874,8 @@
 <!-- Chart analyzer -->
 <div class="overlay" id="analyzeOverlay">
   <div class="modal">
-    <h2>Chart analyzer</h2>
-    <div class="modal-sub">Describe structure from a screenshot. Optional Mistral API for AI notes — still your decision to trade.</div>
+    <h2>Market analyzer</h2>
+    <div class="modal-sub">Tips from current moves on your watchlist pairs, optional chart, and your playbook. Not automatic entries.</div>
 
     <div class="form-grid">
       <div class="field">
@@ -875,7 +905,7 @@
         <div class="shot-preview" id="azPreview"></div>
       </div>
       <div class="field full">
-        <label>Mistral API key (optional, stored only in this browser)</label>
+        <label>Mistral API key (optional if MISTRAL_API_KEY is set on Vercel)</label>
         <input id="az_mistral" type="password" placeholder="Leave empty for local checklist only" autocomplete="off" />
       </div>
     </div>
@@ -886,8 +916,8 @@
     <div class="modal-actions">
       <button class="link-btn" id="analyzeClose">Close</button>
       <div class="right-actions">
-        <button class="btn-ghost" id="azLocal">Local checklist</button>
-        <button class="btn-primary" id="azRun">Analyze with Mistral</button>
+        <button class="btn-ghost" id="azLocal">Checklist only</button>
+        <button class="btn-primary" id="azRun">Get market tips</button>
       </div>
     </div>
   </div>
@@ -2146,13 +2176,60 @@
   }
   document.getElementById('azLocal').addEventListener('click', localChecklist);
 
-  async function runMistral(){
-    const key = document.getElementById('az_mistral').value.trim();
-    if(!key){
-      document.getElementById('azOut').textContent = 'Add a Mistral API key (or use Local checklist).';
-      return;
+
+  async function callMistral(messages, hasImage){
+    // Prefer Vercel proxy (MISTRAL_API_KEY)
+    try{
+      const proxy = await fetch('/api/mistral', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messages, hasImage: !!hasImage, temperature: 0.3, max_tokens: 650 })
+      });
+      if(proxy.ok){
+        const data = await proxy.json();
+        if(data.choices) return data;
+      }
+      if(proxy.status === 500){
+        const err = await proxy.json().catch(()=>({}));
+        if(err.error && String(err.error).includes('MISTRAL_API_KEY')){
+          /* fall through to client key */
+        } else if(err.error){
+          throw new Error(err.error);
+        }
+      }
+    }catch(e){
+      if(e.message && !e.message.includes('Failed to fetch') && !e.message.includes('NetworkError')) throw e;
     }
-    await storageSet(MISTRAL_KEY, key);
+    const key = document.getElementById('az_mistral').value.trim() || (await storageGet(MISTRAL_KEY)) || '';
+    if(!key) throw new Error('Set MISTRAL_API_KEY on Vercel, or paste a Mistral key in Analyzer.');
+    const model = hasImage ? 'pixtral-12b-2409' : 'mistral-small-latest';
+    const res = await fetch('https://api.mistral.ai/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + key },
+      body: JSON.stringify({ model, messages, temperature: 0.3, max_tokens: 650 })
+    });
+    const data = await res.json();
+    if(!res.ok) throw new Error((data.error && data.error.message) || res.status);
+    return data;
+  }
+
+  async function gatherMarketContext(pair){
+    const lines = [];
+    try{
+      const q = await fetchQuote(pair);
+      if(q.rate != null){
+        lines.push(pair+' last ≈ '+q.rate.toFixed(pair.includes('JPY')?3:5));
+        if(q.low != null && q.high != null) lines.push('Day range: '+q.low.toFixed(pair.includes('JPY')?3:5)+' – '+q.high.toFixed(pair.includes('JPY')?3:5));
+        if(q.changePct != null) lines.push('Vs prior day close: '+(q.changePct>=0?'+':'')+q.changePct.toFixed(2)+'%');
+        if(q.ts) lines.push('Quote time: '+q.ts);
+      } else if(q.error) lines.push(pair+': '+q.error);
+    }catch(e){
+      lines.push(pair+': could not fetch quote ('+e.message+'). Tips will use notes/chart only.');
+    }
+    return lines.join('\n');
+  }
+
+  async function runMistral(){
     const pair = document.getElementById('az_pair').value;
     const sess = document.getElementById('az_session').value;
     const notes = document.getElementById('az_notes').value.trim();
@@ -2162,65 +2239,64 @@
       if(pb && pb.rules) playbook = pb.rules;
     }catch(e){}
 
-    const system = `You are a cautious trading journal assistant for a discretionary forex trader.
-You do NOT give financial advice or tell the user to buy/sell.
-You only help them observe structure: trend, support/resistance, supply/demand, liquidity, session context.
-Always end with: decisions and risk remain with the trader; this is not a signal.
-Keep under 250 words. Use short bullets.`;
+    document.getElementById('azOut').textContent = 'Loading market data + tips…';
+    const market = await gatherMarketContext(pair);
+
+    const system = `You are a cautious forex market assistant inside a trading journal.
+Use the provided live/delayed market snapshot and any chart description.
+Give practical structure tips: bias, nearby support/resistance or supply/demand, what the current move may mean for the session, what to wait for.
+Do NOT say "buy now" or "sell now". Do NOT promise profits.
+Frame ideas as observations and questions against a discretionary playbook.
+End with: This is not financial advice; the trader decides risk.`;
 
     const userText = `Pair: ${pair}
 Session context: ${sess}
+Market snapshot:
+${market || '(no quote available)'}
+
 Trader notes: ${notes || '(none)'}
-Playbook rules (if any):
+Playbook:
 ${playbook || '(not set)'}
 
-Describe possible structure (HTF bias, nearby S/R or supply/demand, what to wait for before any entry). List risks of acting too early. Do not say "enter long/short now".`;
+Based on the current move and levels, give short bullet tips a discretionary trader could use before considering an entry. Include invalidation ideas.`;
 
-    document.getElementById('azOut').textContent = 'Analyzing…';
-    const content = [{ type: 'text', text: userText }];
-    if(azShot && azShot.startsWith('data:image')){
-      content.push({ type: 'image_url', image_url: azShot });
-    }
+    const hasImage = !!(azShot && azShot.startsWith('data:image'));
+    const userContent = hasImage
+      ? [{ type: 'text', text: userText }, { type: 'image_url', image_url: azShot }]
+      : userText;
 
     try{
-      // Try vision-capable model first; fall back to text-only
-      const models = azShot ? ['pixtral-12b-2409', 'mistral-small-latest'] : ['mistral-small-latest'];
-      let res, data, lastErr;
-      for(const model of models){
-        const body = {
-          model,
-          messages: [
+      const keyLocal = document.getElementById('az_mistral').value.trim();
+      if(keyLocal) await storageSet(MISTRAL_KEY, keyLocal);
+
+      let data;
+      try{
+        data = await callMistral([
+          { role: 'system', content: system },
+          { role: 'user', content: userContent }
+        ], hasImage);
+      }catch(e1){
+        // retry text-only if vision model fails
+        if(hasImage){
+          data = await callMistral([
             { role: 'system', content: system },
-            { role: 'user', content: azShot && model.includes('pixtral') ? content : userText }
-          ],
-          temperature: 0.3,
-          max_tokens: 500
-        };
-        res = await fetch('https://api.mistral.ai/v1/chat/completions', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': 'Bearer ' + key
-          },
-          body: JSON.stringify(body)
-        });
-        data = await res.json().catch(()=>({}));
-        if(res.ok) break;
-        lastErr = data.error && data.error.message ? data.error.message : (res.status+' '+JSON.stringify(data).slice(0,200));
-      }
-      if(!res.ok){
-        document.getElementById('azOut').textContent = 'Mistral error: '+lastErr+'\n\nYou can still use Local checklist.';
-        return;
+            { role: 'user', content: userText + '\n(Chart attached but vision unavailable; use numbers only.)' }
+          ], false);
+        } else throw e1;
       }
       const text = data.choices && data.choices[0] && data.choices[0].message
         ? data.choices[0].message.content
-        : JSON.stringify(data).slice(0,400);
-      document.getElementById('azOut').textContent = text;
+        : JSON.stringify(data).slice(0, 500);
+      document.getElementById('azOut').textContent =
+        (market ? 'MARKET\n'+market+'\n\nTIPS\n' : '') + text;
     }catch(err){
-      document.getElementById('azOut').textContent = 'Request failed: '+err.message+'\n(CORS or network. If blocked in browser, use a small backend/Supabase Edge Function next.)';
+      document.getElementById('azOut').textContent =
+        (market ? 'MARKET\n'+market+'\n\n' : '') +
+        'Tips failed: '+err.message+'\nUse Checklist only, or set MISTRAL_API_KEY on Vercel.';
     }
   }
   document.getElementById('azRun').addEventListener('click', runMistral);
+
 
   // session check loop
   loadWatch().then(()=> checkSessions(true));
@@ -2260,7 +2336,7 @@ Describe possible structure (HTF bias, nearby S/R or supply/demand, what to wait
     }
     const key = (document.getElementById('av_key') && document.getElementById('av_key').value.trim())
       || (await storageGet(AV_KEY)) || '';
-    if(!key) throw new Error('Add Alpha Vantage key in Sessions, or set ALPHA_VANTAGE_API on Vercel (/api/fx).');
+    if(!key) throw new Error('Add Alpha Vantage key in Sessions, or set ALPHA_VANTAGE_KEY on Vercel (/api/fx).');
     const q = new URLSearchParams({ ...params, apikey: key });
     const url = 'https://www.alphavantage.co/query?' + q.toString();
     const res = await fetch(url);
@@ -2378,6 +2454,65 @@ Describe possible structure (HTF bias, nearby S/R or supply/demand, what to wait
   };
 
 
+
+  async function renderWatchStrip(){
+    const grid = document.getElementById('watchGrid');
+    if(!grid) return;
+    const pairs = (watchConfig && watchConfig.pairs) || [];
+    if(!pairs.length){
+      grid.innerHTML = '<div class="watch-empty">Open <strong>Sessions</strong> to pick pairs. Quotes load with Alpha Vantage (browser key or Vercel ALPHA_VANTAGE_API).</div>';
+      return;
+    }
+    grid.innerHTML = pairs.map(p=>`
+      <div class="watch-tile" data-pair="${p}">
+        <div class="watch-pair">${p}</div>
+        <div class="watch-rate" id="wr-${p.replace('/','')}">…</div>
+        <div class="watch-meta" id="wm-${p.replace('/','')}">tap to analyze</div>
+      </div>`).join('');
+    grid.querySelectorAll('.watch-tile').forEach(tile=>{
+      tile.addEventListener('click', ()=>{
+        document.getElementById('az_pair').value = tile.dataset.pair;
+        document.getElementById('openAnalyze').click();
+      });
+    });
+    // sequential quotes to respect free tier
+    for(let i=0;i<pairs.length;i++){
+      const p = pairs[i];
+      const id = p.replace('/','');
+      try{
+        if(i>0) await new Promise(r=>setTimeout(r, 12000));
+        const q = await fetchQuote(p);
+        const rateEl = document.getElementById('wr-'+id);
+        const metaEl = document.getElementById('wm-'+id);
+        if(!rateEl) continue;
+        if(q.rate != null){
+          rateEl.textContent = q.rate.toFixed(p.includes('JPY')?3:5);
+          rateEl.className = 'watch-rate ' + (q.changePct>0?'up':q.changePct<0?'down':'');
+          let m = '';
+          if(q.changePct != null) m += (q.changePct>=0?'+':'')+q.changePct.toFixed(2)+'% d/d';
+          if(q.low != null && q.high != null) m += (m?' · ':'')+'L '+q.low.toFixed(p.includes('JPY')?2:4)+' H '+q.high.toFixed(p.includes('JPY')?2:4);
+          metaEl.textContent = m || 'tap to analyze';
+        }else{
+          rateEl.textContent = '—';
+          metaEl.textContent = q.error || 'no data';
+        }
+      }catch(e){
+        const rateEl = document.getElementById('wr-'+id);
+        const metaEl = document.getElementById('wm-'+id);
+        if(rateEl) rateEl.textContent = '—';
+        if(metaEl) metaEl.textContent = e.message.slice(0,40);
+      }
+    }
+  }
+
+  // refresh strip when watchlist saved and on load
+  const _prevSessSave = document.getElementById('sessionsSave');
+  document.getElementById('sessionsSave').addEventListener('click', ()=>{
+    setTimeout(()=> renderWatchStrip(), 300);
+  });
+
+
+  loadWatch().then(()=> renderWatchStrip());
   loadTrades();
 })();
 </script>
