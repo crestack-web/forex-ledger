@@ -283,6 +283,30 @@
   .risk-live.show{ display:block; }
   .risk-live strong{ color:var(--chalk); font-family:'Fraunces', serif; font-size:15px; }
 
+
+  .checklist{ display:flex; flex-direction:column; gap:8px; margin:12px 0; }
+  .check-item{
+    display:flex; align-items:flex-start; gap:10px; padding:10px 12px;
+    background:var(--surface-2); border:1px solid var(--line); border-radius:3px;
+    cursor:pointer; transition:border-color .15s ease;
+  }
+  .check-item:hover{ border-color:var(--gold-dim); }
+  .check-item input{ margin-top:3px; accent-color:var(--gold); width:16px; height:16px; flex-shrink:0; }
+  .check-item span{ font-size:13.5px; line-height:1.45; color:var(--chalk-dim); }
+  .check-item.done span{ color:var(--dim); text-decoration:line-through; }
+  .review-grid{ display:grid; grid-template-columns:1fr 1fr; gap:12px; margin:14px 0; }
+  .review-stat{
+    background:var(--surface-2); border:1px solid var(--line); border-radius:3px; padding:14px 16px;
+  }
+  .review-stat .lbl{ font-family:'IBM Plex Mono', monospace; font-size:10px; letter-spacing:.1em; text-transform:uppercase; color:var(--dim); margin-bottom:4px; }
+  .review-stat .val{ font-family:'Fraunces', serif; font-size:20px; font-variant-numeric:tabular-nums; }
+  .playbook-rules{
+    width:100%; min-height:120px; background:var(--surface-2); border:1px solid var(--line);
+    color:var(--chalk); padding:12px; border-radius:3px; font-family:'Inter', sans-serif;
+    font-size:13.5px; line-height:1.55; resize:vertical;
+  }
+  @media (max-width:620px){ .review-grid{ grid-template-columns:1fr; } }
+
   @media (prefers-reduced-motion: reduce){
     *{ animation:none !important; transition:none !important; }
   }
@@ -336,6 +360,9 @@
         <button class="btn-ghost" data-filter="loss">Losses</button>
       </div>
       <button class="btn-ghost" id="openCalc">Risk calc</button>
+      <button class="btn-ghost" id="openPlaybook">Playbook</button>
+      <button class="btn-ghost" id="openReview">Weekly review</button>
+      <button class="btn-ghost" id="openExport">Export</button>
       <button class="btn-primary" id="openAdd">+ Log trade</button>
     </div>
   </div>
@@ -587,6 +614,125 @@
         <button class="btn-ghost" id="calcUseLots">Use lots in new trade</button>
         <button class="btn-primary" id="calcRun">Calculate</button>
       </div>
+    </div>
+  </div>
+</div>
+
+
+<!-- Playbook -->
+<div class="overlay" id="playbookOverlay">
+  <div class="modal">
+    <h2>Playbook</h2>
+    <div class="modal-sub">Your A+ rules and pre-trade checklist. Check every box before you click buy or sell.</div>
+
+    <div class="field full" style="margin-bottom:16px;">
+      <label>Written rules (edge definition)</label>
+      <textarea class="playbook-rules" id="playbookRules" placeholder="Example:
+• Only London/NY overlap
+• A+ setups: clear structure break + retest
+• Risk 0.5% max per trade
+• No trade after 2 losses in a row
+• No news-spike entries"></textarea>
+    </div>
+
+    <label style="margin-bottom:6px;display:block;">Pre-trade checklist</label>
+    <div class="checklist" id="checklist">
+      <label class="check-item"><input type="checkbox" data-c="1"><span>Setup matches my written playbook (A+ only)</span></label>
+      <label class="check-item"><input type="checkbox" data-c="2"><span>Stop loss placed; risk in $ and % is acceptable</span></label>
+      <label class="check-item"><input type="checkbox" data-c="3"><span>R:R is at least my minimum (e.g. 1:2)</span></label>
+      <label class="check-item"><input type="checkbox" data-c="4"><span>Session / pair is one I trade well</span></label>
+      <label class="check-item"><input type="checkbox" data-c="5"><span>Not emotional (no revenge, FOMO, or boredom)</span></label>
+      <label class="check-item"><input type="checkbox" data-c="6"><span>Daily loss limit not hit</span></label>
+      <label class="check-item"><input type="checkbox" data-c="7"><span>Position size calculated from stop, not gut</span></label>
+    </div>
+
+    <div class="form-grid" style="margin-top:16px;">
+      <div class="field">
+        <label>Max risk per trade (%)</label>
+        <input id="pb_riskPct" type="number" step="0.1" value="1" />
+      </div>
+      <div class="field">
+        <label>Daily loss limit (R or $)</label>
+        <input id="pb_dailyLimit" type="text" placeholder="e.g. -2R or -200" />
+      </div>
+      <div class="field">
+        <label>Weekly loss limit</label>
+        <input id="pb_weeklyLimit" type="text" placeholder="e.g. -5R or -500" />
+      </div>
+      <div class="field">
+        <label>Min R:R</label>
+        <input id="pb_minRR" type="number" step="0.1" value="2" />
+      </div>
+    </div>
+
+    <div class="modal-actions">
+      <button class="link-btn" id="playbookResetChecks">Reset checks</button>
+      <div class="right-actions">
+        <button class="btn-ghost" id="playbookClose">Close</button>
+        <button class="btn-primary" id="playbookSave">Save playbook</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Weekly Review -->
+<div class="overlay" id="reviewOverlay">
+  <div class="modal" style="max-width:680px;">
+    <h2>Weekly review</h2>
+    <div class="modal-sub">Look at the week honestly. Keep what works. Cut what doesn’t.</div>
+
+    <div class="form-grid" style="margin-bottom:8px;">
+      <div class="field">
+        <label>Week starting</label>
+        <input id="rev_from" type="date" />
+      </div>
+      <div class="field">
+        <label>Week ending</label>
+        <input id="rev_to" type="date" />
+      </div>
+    </div>
+
+    <div class="review-grid" id="reviewStats"></div>
+
+    <div class="field full" style="margin-bottom:12px;">
+      <label>What worked</label>
+      <textarea id="rev_worked" placeholder="Setups, sessions, behaviors that paid…"></textarea>
+    </div>
+    <div class="field full" style="margin-bottom:12px;">
+      <label>What didn’t / rule breaks</label>
+      <textarea id="rev_failed" placeholder="FOMO, oversized risk, trading outside plan…"></textarea>
+    </div>
+    <div class="field full" style="margin-bottom:12px;">
+      <label>One change for next week</label>
+      <textarea id="rev_change" placeholder="Single concrete adjustment…"></textarea>
+    </div>
+
+    <div class="table-wrap" id="reviewTrades" style="margin-bottom:12px; max-height:220px; overflow:auto;"></div>
+
+    <div class="modal-actions">
+      <button class="link-btn" id="reviewClose">Close</button>
+      <div class="right-actions">
+        <button class="btn-ghost" id="reviewRefresh">Refresh stats</button>
+        <button class="btn-primary" id="reviewSave">Save review notes</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Export -->
+<div class="overlay" id="exportOverlay">
+  <div class="modal" style="max-width:420px;">
+    <h2>Export data</h2>
+    <div class="modal-sub">Backup or hand to an accountant. CSV opens in Excel; JSON is a full backup.</div>
+    <div style="display:flex; flex-direction:column; gap:10px; margin:18px 0;">
+      <button class="btn-primary" id="expCsv" style="width:100%;">Download trades CSV (taxes / Excel)</button>
+      <button class="btn-ghost" id="expJson" style="width:100%;">Download full backup JSON</button>
+      <button class="btn-ghost" id="expReview" style="width:100%;">Download weekly reviews JSON</button>
+    </div>
+    <p style="font-size:12.5px; color:var(--dim); line-height:1.5;">CSV columns: date, pair, side, entry, exit, SL, TP, lots, pips, pnl, risk%, strategy, session, timeframe, emotion, thesis, notes.</p>
+    <div class="modal-actions">
+      <div></div>
+      <button class="btn-ghost" id="exportClose">Close</button>
     </div>
   </div>
 </div>
@@ -1335,6 +1481,191 @@
     if(node){ node.addEventListener('input', updateTradeRiskLive); node.addEventListener('change', updateTradeRiskLive); }
   });
   document.getElementById('f_instrument').addEventListener('change', updateTradeRiskLive);
+
+
+
+  const PLAYBOOK_KEY = 'forex-ledger-playbook';
+  const REVIEWS_KEY = 'forex-ledger-reviews';
+
+  async function loadPlaybook(){
+    const pb = (await storageGet(PLAYBOOK_KEY)) || {};
+    document.getElementById('playbookRules').value = pb.rules || '';
+    document.getElementById('pb_riskPct').value = pb.riskPct != null ? pb.riskPct : 1;
+    document.getElementById('pb_dailyLimit').value = pb.dailyLimit || '';
+    document.getElementById('pb_weeklyLimit').value = pb.weeklyLimit || '';
+    document.getElementById('pb_minRR').value = pb.minRR != null ? pb.minRR : 2;
+  }
+  async function savePlaybookData(){
+    const pb = {
+      rules: document.getElementById('playbookRules').value,
+      riskPct: parseFloat(document.getElementById('pb_riskPct').value) || 1,
+      dailyLimit: document.getElementById('pb_dailyLimit').value.trim(),
+      weeklyLimit: document.getElementById('pb_weeklyLimit').value.trim(),
+      minRR: parseFloat(document.getElementById('pb_minRR').value) || 2
+    };
+    await storageSet(PLAYBOOK_KEY, pb);
+  }
+
+  document.getElementById('openPlaybook').addEventListener('click', async ()=>{
+    await loadPlaybook();
+    document.querySelectorAll('#checklist input').forEach(c=>{ c.checked=false; c.closest('.check-item').classList.remove('done'); });
+    document.getElementById('playbookOverlay').classList.add('show');
+  });
+  document.getElementById('playbookClose').addEventListener('click', ()=> document.getElementById('playbookOverlay').classList.remove('show'));
+  document.getElementById('playbookOverlay').addEventListener('click', e=>{ if(e.target.id==='playbookOverlay') document.getElementById('playbookOverlay').classList.remove('show'); });
+  document.getElementById('playbookSave').addEventListener('click', async ()=>{
+    await savePlaybookData();
+    document.getElementById('playbookOverlay').classList.remove('show');
+  });
+  document.getElementById('playbookResetChecks').addEventListener('click', ()=>{
+    document.querySelectorAll('#checklist input').forEach(c=>{ c.checked=false; c.closest('.check-item').classList.remove('done'); });
+  });
+  document.querySelectorAll('#checklist input').forEach(c=>{
+    c.addEventListener('change', ()=>{
+      c.closest('.check-item').classList.toggle('done', c.checked);
+    });
+  });
+
+  function startOfWeek(d){
+    const x = new Date(d); const day = x.getDay();
+    const diff = (day === 0 ? -6 : 1) - day; // Monday start
+    x.setDate(x.getDate() + diff);
+    return x.toISOString().slice(0,10);
+  }
+  function endOfWeek(from){
+    const x = new Date(from+'T00:00:00');
+    x.setDate(x.getDate()+6);
+    return x.toISOString().slice(0,10);
+  }
+
+  function tradesInRange(from, to){
+    return trades.filter(t=> t.date >= from && t.date <= to);
+  }
+
+  function renderWeeklyReview(){
+    const from = document.getElementById('rev_from').value;
+    const to = document.getElementById('rev_to').value;
+    const list = tradesInRange(from, to);
+    const net = list.reduce((s,t)=>s+Number(t.pnl||0),0);
+    const wins = list.filter(t=>Number(t.pnl)>0).length;
+    const losses = list.filter(t=>Number(t.pnl)<0).length;
+    const wr = list.length ? Math.round(wins/list.length*100) : 0;
+    const best = list.length ? Math.max(...list.map(t=>Number(t.pnl||0))) : 0;
+    const worst = list.length ? Math.min(...list.map(t=>Number(t.pnl||0))) : 0;
+    const pips = list.reduce((s,t)=>s+(Number(t.pips)||0),0);
+
+    // by strategy
+    const byS = {};
+    list.forEach(t=>{ const k=t.strategy||'Unspecified'; byS[k]=(byS[k]||0)+Number(t.pnl||0); });
+    const stratLine = Object.keys(byS).length
+      ? Object.entries(byS).sort((a,b)=>b[1]-a[1]).map(([k,v])=>k+': '+fmtMoney(v)).join(' · ')
+      : '—';
+
+    document.getElementById('reviewStats').innerHTML = `
+      <div class="review-stat"><div class="lbl">Trades</div><div class="val">${list.length}</div></div>
+      <div class="review-stat"><div class="lbl">Net P&L</div><div class="val ${net>0?'up':net<0?'down':''}">${list.length?fmtMoney(net):'—'}</div></div>
+      <div class="review-stat"><div class="lbl">Win rate</div><div class="val">${list.length?wr+'%': '—'}</div></div>
+      <div class="review-stat"><div class="lbl">W / L</div><div class="val">${wins} / ${losses}</div></div>
+      <div class="review-stat"><div class="lbl">Best</div><div class="val ${best>0?'up':''}">${list.length?fmtMoney(best):'—'}</div></div>
+      <div class="review-stat"><div class="lbl">Worst</div><div class="val ${worst<0?'down':''}">${list.length?fmtMoney(worst):'—'}</div></div>
+      <div class="review-stat"><div class="lbl">Total pips</div><div class="val">${list.length?(pips>0?'+':'')+pips.toFixed(1):'—'}</div></div>
+      <div class="review-stat"><div class="lbl">Vs start equity</div><div class="val">${accountSize&&list.length?((net/accountSize)*100).toFixed(2)+'%':'—'}</div></div>
+    `;
+
+    const sorted = list.slice().sort((a,b)=> b.date.localeCompare(a.date));
+    document.getElementById('reviewTrades').innerHTML = sorted.length ? `
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--dim);margin-bottom:8px;">Trades this week · by strategy ${escapeHtml(stratLine)}</div>
+      <table style="width:100%;font-size:12.5px;border-collapse:collapse;">
+        <thead><tr style="color:var(--dim);text-align:left;">
+          <th style="padding:6px 4px;">Date</th><th>Pair</th><th>Side</th><th>P&L</th><th>Strategy</th>
+        </tr></thead>
+        <tbody>
+          ${sorted.map(t=>`<tr>
+            <td style="padding:6px 4px;border-top:1px solid var(--line);">${t.date}</td>
+            <td style="border-top:1px solid var(--line);">${escapeHtml(t.instrument||'')}</td>
+            <td style="border-top:1px solid var(--line);">${t.side||''}</td>
+            <td style="border-top:1px solid var(--line);" class="${Number(t.pnl)>0?'up':Number(t.pnl)<0?'down':''}">${fmtMoney(t.pnl)}</td>
+            <td style="border-top:1px solid var(--line);">${escapeHtml(t.strategy||'—')}</td>
+          </tr>`).join('')}
+        </tbody>
+      </table>` : '<p style="color:var(--dim);font-size:13px;">No trades in this range.</p>';
+  }
+
+  document.getElementById('openReview').addEventListener('click', async ()=>{
+    const today = new Date();
+    const from = startOfWeek(today);
+    document.getElementById('rev_from').value = from;
+    document.getElementById('rev_to').value = endOfWeek(from);
+    const reviews = (await storageGet(REVIEWS_KEY)) || {};
+    const key = from;
+    const saved = reviews[key] || {};
+    document.getElementById('rev_worked').value = saved.worked || '';
+    document.getElementById('rev_failed').value = saved.failed || '';
+    document.getElementById('rev_change').value = saved.change || '';
+    renderWeeklyReview();
+    document.getElementById('reviewOverlay').classList.add('show');
+  });
+  document.getElementById('reviewClose').addEventListener('click', ()=> document.getElementById('reviewOverlay').classList.remove('show'));
+  document.getElementById('reviewOverlay').addEventListener('click', e=>{ if(e.target.id==='reviewOverlay') document.getElementById('reviewOverlay').classList.remove('show'); });
+  document.getElementById('reviewRefresh').addEventListener('click', renderWeeklyReview);
+  document.getElementById('rev_from').addEventListener('change', renderWeeklyReview);
+  document.getElementById('rev_to').addEventListener('change', renderWeeklyReview);
+  document.getElementById('reviewSave').addEventListener('click', async ()=>{
+    const from = document.getElementById('rev_from').value;
+    const reviews = (await storageGet(REVIEWS_KEY)) || {};
+    reviews[from] = {
+      from,
+      to: document.getElementById('rev_to').value,
+      worked: document.getElementById('rev_worked').value.trim(),
+      failed: document.getElementById('rev_failed').value.trim(),
+      change: document.getElementById('rev_change').value.trim(),
+      savedAt: new Date().toISOString()
+    };
+    await storageSet(REVIEWS_KEY, reviews);
+    document.getElementById('reviewOverlay').classList.remove('show');
+  });
+
+  function downloadBlob(filename, text, mime){
+    const blob = new Blob([text], {type: mime||'text/plain'});
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }
+
+  function tradesToCsv(list){
+    const headers = ['date','instrument','side','entry','exit','sl','tp','size','pips','pnl','risk','strategy','session','tf','emotion','thesis','notes'];
+    const esc = v => {
+      const s = v == null ? '' : String(v);
+      if(/[",\n]/.test(s)) return '"'+s.replace(/"/g,'""')+'"';
+      return s;
+    };
+    const rows = list.map(t => headers.map(h => esc(t[h])).join(','));
+    return headers.join(',') + '\n' + rows.join('\n');
+  }
+
+  document.getElementById('openExport').addEventListener('click', ()=> document.getElementById('exportOverlay').classList.add('show'));
+  document.getElementById('exportClose').addEventListener('click', ()=> document.getElementById('exportOverlay').classList.remove('show'));
+  document.getElementById('exportOverlay').addEventListener('click', e=>{ if(e.target.id==='exportOverlay') document.getElementById('exportOverlay').classList.remove('show'); });
+  document.getElementById('expCsv').addEventListener('click', ()=>{
+    const sorted = trades.slice().sort((a,b)=> a.date.localeCompare(b.date));
+    downloadBlob('forex-trades-'+new Date().toISOString().slice(0,10)+'.csv', tradesToCsv(sorted), 'text/csv');
+  });
+  document.getElementById('expJson').addEventListener('click', async ()=>{
+    const data = {
+      exportedAt: new Date().toISOString(),
+      accountSize,
+      trades,
+      playbook: await storageGet(PLAYBOOK_KEY),
+      reviews: await storageGet(REVIEWS_KEY)
+    };
+    downloadBlob('forex-ledger-backup-'+new Date().toISOString().slice(0,10)+'.json', JSON.stringify(data,null,2), 'application/json');
+  });
+  document.getElementById('expReview').addEventListener('click', async ()=>{
+    const reviews = await storageGet(REVIEWS_KEY) || {};
+    downloadBlob('forex-weekly-reviews-'+new Date().toISOString().slice(0,10)+'.json', JSON.stringify(reviews,null,2), 'application/json');
+  });
 
 
   loadTrades();
