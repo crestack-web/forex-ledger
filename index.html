@@ -277,6 +277,33 @@
   .closed-badge.be{ color:var(--gold); border-color:var(--gold-dim); }
   .closed-badge.manual, .closed-badge.partial{ color:var(--chalk-dim); border-color:var(--line); }
 
+
+  .alert-banner{
+    display:none; background:var(--surface); border:1px solid var(--gold-dim);
+    border-left:3px solid var(--gold); border-radius:3px; padding:12px 16px;
+    margin-bottom:16px; font-size:13.5px; line-height:1.5;
+  }
+  .alert-banner.show{ display:block; }
+  .alert-banner strong{ color:var(--gold); }
+  .analyze-out{
+    margin-top:14px; padding:14px 16px; background:var(--surface-2);
+    border:1px solid var(--line); border-radius:3px; font-size:13.5px;
+    line-height:1.6; color:var(--chalk-dim); white-space:pre-wrap;
+    max-height:320px; overflow-y:auto;
+  }
+  .analyze-out:empty{ display:none; }
+  .pair-chips{ display:flex; flex-wrap:wrap; gap:8px; margin-top:6px; }
+  .pair-chip{
+    font-family:'IBM Plex Mono', monospace; font-size:11px; padding:6px 10px;
+    border:1px solid var(--line); border-radius:3px; background:var(--surface-2);
+    color:var(--dim); cursor:pointer; user-select:none;
+  }
+  .pair-chip.on{ color:var(--gold); border-color:var(--gold-dim); background:rgba(198,154,74,.08); }
+  .session-row{ display:flex; align-items:center; gap:10px; padding:8px 0; border-bottom:1px solid var(--line); font-size:13.5px; }
+  .session-row:last-child{ border-bottom:none; }
+  .session-row label{ flex:1; color:var(--chalk-dim); text-transform:none; letter-spacing:0; font-family:Inter,sans-serif; font-size:13.5px; }
+  .disclaimer{ font-size:11.5px; color:var(--dim); line-height:1.5; margin-top:12px; }
+
   /* ── Mobile: modals become full pages, no overflow ── */
   @media (max-width: 720px){
     .wrap{ padding:20px 16px 100px; }
@@ -456,6 +483,8 @@
     <div class="stat"><div class="stat-label">Avg R</div><div class="stat-value" id="statAvg">—</div></div>
   </div>
 
+  <div class="alert-banner" id="sessionBanner"></div>
+
   <div class="controls">
     <div class="section-label">The log</div>
     <div class="controls-actions">
@@ -472,6 +501,8 @@
         <button class="btn-ghost" data-filter="BE">BE</button>
       </div>
       <button class="btn-ghost" id="openCalc">Risk calc</button>
+      <button class="btn-ghost" id="openSessions">Sessions</button>
+      <button class="btn-ghost" id="openAnalyze">Analyze</button>
       <button class="btn-ghost" id="openPlaybook">Playbook</button>
       <button class="btn-ghost" id="openReview">Weekly review</button>
       <button class="btn-ghost" id="openExport">Export</button>
@@ -736,6 +767,116 @@
       <div class="right-actions">
         <button class="btn-ghost" id="calcUseLots">Use lots in new trade</button>
         <button class="btn-primary" id="calcRun">Calculate</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+
+<!-- Sessions / Watchlist -->
+<div class="overlay" id="sessionsOverlay">
+  <div class="modal">
+    <h2>Sessions &amp; watchlist</h2>
+    <div class="modal-sub">Get a nudge when your session opens so you can open the chart and follow the playbook — not auto entries.</div>
+
+    <div class="field full" style="margin-bottom:14px;">
+      <label>Pairs to watch</label>
+      <div class="pair-chips" id="watchPairs">
+        <span class="pair-chip" data-pair="EUR/USD">EUR/USD</span>
+        <span class="pair-chip" data-pair="GBP/USD">GBP/USD</span>
+        <span class="pair-chip" data-pair="USD/JPY">USD/JPY</span>
+        <span class="pair-chip" data-pair="USD/CHF">USD/CHF</span>
+        <span class="pair-chip" data-pair="AUD/USD">AUD/USD</span>
+        <span class="pair-chip" data-pair="USD/CAD">USD/CAD</span>
+        <span class="pair-chip" data-pair="NZD/USD">NZD/USD</span>
+        <span class="pair-chip" data-pair="EUR/JPY">EUR/JPY</span>
+        <span class="pair-chip" data-pair="GBP/JPY">GBP/JPY</span>
+        <span class="pair-chip" data-pair="XAU/USD">XAU/USD</span>
+      </div>
+    </div>
+
+    <label style="margin-bottom:6px;display:block;">Sessions (local times use your browser timezone)</label>
+    <div class="session-row">
+      <input type="checkbox" id="sess_london" checked />
+      <label for="sess_london">London open</label>
+      <input type="time" id="sess_london_time" value="08:00" style="width:auto;max-width:120px;" />
+    </div>
+    <div class="session-row">
+      <input type="checkbox" id="sess_ny" checked />
+      <label for="sess_ny">New York open</label>
+      <input type="time" id="sess_ny_time" value="13:00" style="width:auto;max-width:120px;" />
+    </div>
+    <div class="session-row">
+      <input type="checkbox" id="sess_asia" />
+      <label for="sess_asia">Asia open</label>
+      <input type="time" id="sess_asia_time" value="00:00" style="width:auto;max-width:120px;" />
+    </div>
+
+    <div class="field full" style="margin-top:16px;">
+      <label>Browser notifications</label>
+      <button type="button" class="btn-ghost" id="enableNotif" style="margin-top:6px;">Enable notifications</button>
+      <p class="disclaimer" id="notifStatus">Alerts fire while this page is open (or installed as a tab you keep around). Background push needs a backend later (e.g. Supabase).</p>
+    </div>
+
+    <p class="disclaimer">Times are approximate session opens in <span id="tzLabel"></span>. Adjust to match how you trade. This is a reminder to review charts — not a trade signal.</p>
+
+    <div class="modal-actions">
+      <button class="link-btn" id="sessionsClose">Close</button>
+      <div class="right-actions">
+        <button class="btn-primary" id="sessionsSave">Save watchlist</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Chart analyzer -->
+<div class="overlay" id="analyzeOverlay">
+  <div class="modal">
+    <h2>Chart analyzer</h2>
+    <div class="modal-sub">Describe structure from a screenshot. Optional Mistral API for AI notes — still your decision to trade.</div>
+
+    <div class="form-grid">
+      <div class="field">
+        <label>Pair</label>
+        <select id="az_pair">
+          <option>EUR/USD</option><option>GBP/USD</option><option selected>USD/JPY</option>
+          <option>USD/CHF</option><option>AUD/USD</option><option>USD/CAD</option>
+          <option>NZD/USD</option><option>EUR/JPY</option><option>GBP/JPY</option>
+          <option>XAU/USD</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Session context</label>
+        <select id="az_session">
+          <option>London</option><option>New York</option><option>Asia</option>
+          <option>London/NY overlap</option><option>Any</option>
+        </select>
+      </div>
+      <div class="field full">
+        <label>Your read (levels, bias)</label>
+        <textarea id="az_notes" placeholder="e.g. Daily supply at 151.20, price retracing into it on H1 after London open…"></textarea>
+      </div>
+      <div class="field full">
+        <label>Chart screenshot (optional)</label>
+        <div class="upload-zone" id="azUpload">Click to attach chart image</div>
+        <input type="file" id="azFile" accept="image/*" style="display:none;" />
+        <div class="shot-preview" id="azPreview"></div>
+      </div>
+      <div class="field full">
+        <label>Mistral API key (optional, stored only in this browser)</label>
+        <input id="az_mistral" type="password" placeholder="Leave empty for local checklist only" autocomplete="off" />
+      </div>
+    </div>
+
+    <div class="analyze-out" id="azOut"></div>
+    <p class="disclaimer">Not financial advice. AI can misread charts. Use only as a second pair of eyes against your playbook. API key is visible to scripts on this origin — fine for personal use, not for a shared PC.</p>
+
+    <div class="modal-actions">
+      <button class="link-btn" id="analyzeClose">Close</button>
+      <div class="right-actions">
+        <button class="btn-ghost" id="azLocal">Local checklist</button>
+        <button class="btn-primary" id="azRun">Analyze with Mistral</button>
       </div>
     </div>
   </div>
@@ -1816,6 +1957,264 @@
     document.body.style.overflow = any ? 'hidden' : '';
   });
   _overlays.forEach(o=> obs.observe(o, {attributes:true, attributeFilter:['class']}));
+
+
+  const WATCH_KEY = 'forex-ledger-watch';
+  const MISTRAL_KEY = 'forex-ledger-mistral';
+  let watchConfig = {
+    pairs: ['USD/JPY'],
+    sessions: {
+      london: { on: true, time: '08:00' },
+      ny: { on: true, time: '13:00' },
+      asia: { on: false, time: '00:00' }
+    }
+  };
+  let azShot = null;
+  let lastNotifKey = '';
+
+  async function loadWatch(){
+    const w = await storageGet(WATCH_KEY);
+    if(w) watchConfig = Object.assign(watchConfig, w);
+    const mk = await storageGet(MISTRAL_KEY);
+    if(mk) document.getElementById('az_mistral').value = mk;
+  }
+
+  function applyWatchUI(){
+    document.querySelectorAll('#watchPairs .pair-chip').forEach(chip=>{
+      chip.classList.toggle('on', (watchConfig.pairs||[]).includes(chip.dataset.pair));
+    });
+    const s = watchConfig.sessions || {};
+    document.getElementById('sess_london').checked = !!(s.london && s.london.on);
+    document.getElementById('sess_london_time').value = (s.london && s.london.time) || '08:00';
+    document.getElementById('sess_ny').checked = !!(s.ny && s.ny.on);
+    document.getElementById('sess_ny_time').value = (s.ny && s.ny.time) || '13:00';
+    document.getElementById('sess_asia').checked = !!(s.asia && s.asia.on);
+    document.getElementById('sess_asia_time').value = (s.asia && s.asia.time) || '00:00';
+    document.getElementById('tzLabel').textContent = Intl.DateTimeFormat().resolvedOptions().timeZone || 'local';
+    updateNotifStatus();
+  }
+
+  function readWatchUI(){
+    const pairs = [...document.querySelectorAll('#watchPairs .pair-chip.on')].map(c=>c.dataset.pair);
+    watchConfig = {
+      pairs: pairs.length ? pairs : ['USD/JPY'],
+      sessions: {
+        london: { on: document.getElementById('sess_london').checked, time: document.getElementById('sess_london_time').value || '08:00' },
+        ny: { on: document.getElementById('sess_ny').checked, time: document.getElementById('sess_ny_time').value || '13:00' },
+        asia: { on: document.getElementById('sess_asia').checked, time: document.getElementById('sess_asia_time').value || '00:00' }
+      }
+    };
+  }
+
+  document.querySelectorAll('#watchPairs .pair-chip').forEach(chip=>{
+    chip.addEventListener('click', ()=> chip.classList.toggle('on'));
+  });
+
+  document.getElementById('openSessions').addEventListener('click', async ()=>{
+    await loadWatch();
+    applyWatchUI();
+    document.getElementById('sessionsOverlay').classList.add('show');
+  });
+  document.getElementById('sessionsClose').addEventListener('click', ()=> document.getElementById('sessionsOverlay').classList.remove('show'));
+  document.getElementById('sessionsOverlay').addEventListener('click', e=>{ if(e.target.id==='sessionsOverlay') document.getElementById('sessionsOverlay').classList.remove('show'); });
+  document.getElementById('sessionsSave').addEventListener('click', async ()=>{
+    readWatchUI();
+    await storageSet(WATCH_KEY, watchConfig);
+    document.getElementById('sessionsOverlay').classList.remove('show');
+    checkSessions(true);
+  });
+
+  function updateNotifStatus(){
+    const el = document.getElementById('notifStatus');
+    if(!('Notification' in window)){ el.textContent = 'Notifications not supported in this browser.'; return; }
+    el.textContent = 'Permission: ' + Notification.permission + '. Alerts fire while this page is open. Background push needs a backend (e.g. Supabase).';
+  }
+  document.getElementById('enableNotif').addEventListener('click', async ()=>{
+    if(!('Notification' in window)) return;
+    const p = await Notification.requestPermission();
+    updateNotifStatus();
+    if(p === 'granted'){
+      new Notification('Ledger', { body: 'Session alerts enabled for this browser.', tag: 'ledger-test' });
+    }
+  });
+
+  function minsNow(){
+    const d = new Date();
+    return d.getHours()*60 + d.getMinutes();
+  }
+  function parseHHMM(t){
+    const [h,m] = (t||'0:0').split(':').map(Number);
+    return (h||0)*60 + (m||0);
+  }
+
+  function activeSessionHits(){
+    const now = minsNow();
+    const hits = [];
+    const s = watchConfig.sessions || {};
+    const windowMins = 15; // alert window after open
+    [['london','London', s.london], ['ny','New York', s.ny], ['asia','Asia', s.asia]].forEach(([id, label, cfg])=>{
+      if(!cfg || !cfg.on) return;
+      const start = parseHHMM(cfg.time);
+      let delta = now - start;
+      if(delta < 0) delta += 24*60;
+      if(delta >= 0 && delta < windowMins){
+        hits.push({ id, label, time: cfg.time, delta });
+      }
+    });
+    return hits;
+  }
+
+  function checkSessions(forceBanner){
+    const hits = activeSessionHits();
+    const banner = document.getElementById('sessionBanner');
+    const pairs = (watchConfig.pairs||[]).join(', ') || 'your pairs';
+    if(hits.length){
+      const labels = hits.map(h=>h.label+' ('+h.time+')').join(', ');
+      banner.innerHTML = '<strong>Session open — '+labels+'</strong><br>Review <strong>'+pairs+'</strong> against your playbook. Check structure, S/R, supply &amp; demand — then decide. Not a signal to enter.';
+      banner.classList.add('show');
+      const key = hits.map(h=>h.id).join('-') + '-' + new Date().toISOString().slice(0,10) + '-' + hits[0].time;
+      if(key !== lastNotifKey && Notification.permission === 'granted'){
+        lastNotifKey = key;
+        try{
+          new Notification('Ledger · '+hits[0].label+' open', {
+            body: 'Review '+pairs+'. Follow playbook — no auto entry.',
+            tag: 'ledger-session-'+key
+          });
+        }catch(e){}
+      }
+    }else if(forceBanner){
+      banner.classList.remove('show');
+    }else{
+      // keep banner if still in window; else hide
+      if(!hits.length) banner.classList.remove('show');
+    }
+  }
+
+  // ── Analyze ──
+  document.getElementById('openAnalyze').addEventListener('click', async ()=>{
+    await loadWatch();
+    if(watchConfig.pairs && watchConfig.pairs[0]){
+      document.getElementById('az_pair').value = watchConfig.pairs[0];
+    }
+    document.getElementById('azOut').textContent = '';
+    document.getElementById('analyzeOverlay').classList.add('show');
+  });
+  document.getElementById('analyzeClose').addEventListener('click', ()=> document.getElementById('analyzeOverlay').classList.remove('show'));
+  document.getElementById('analyzeOverlay').addEventListener('click', e=>{ if(e.target.id==='analyzeOverlay') document.getElementById('analyzeOverlay').classList.remove('show'); });
+
+  document.getElementById('azUpload').addEventListener('click', ()=> document.getElementById('azFile').click());
+  document.getElementById('azFile').addEventListener('change', e=>{
+    const f = e.target.files && e.target.files[0];
+    if(!f) return;
+    const reader = new FileReader();
+    reader.onload = ev=>{
+      azShot = ev.target.result;
+      document.getElementById('azPreview').innerHTML = '<div class="item"><img src="'+azShot+'"><div class="rm" id="azRm">×</div></div>';
+      document.getElementById('azRm').addEventListener('click', ev2=>{ ev2.stopPropagation(); azShot=null; document.getElementById('azPreview').innerHTML=''; });
+    };
+    reader.readAsDataURL(f);
+    e.target.value = '';
+  });
+
+  function localChecklist(){
+    const pair = document.getElementById('az_pair').value;
+    const sess = document.getElementById('az_session').value;
+    const notes = document.getElementById('az_notes').value.trim();
+    const pb = document.getElementById('playbookRules') ? document.getElementById('playbookRules').value : '';
+    let out = 'LOCAL STRUCTURE CHECKLIST — '+pair+' · '+sess+'\n\n';
+    out += '1. Mark higher-timeframe bias (D1/H4).\n';
+    out += '2. Identify nearest clear support / resistance or supply / demand.\n';
+    out += '3. Is price at a level, mid-range, or in a trend leg?\n';
+    out += '4. Session: does '+sess+' typically respect this pair’s liquidity here?\n';
+    out += '5. Invalidation: where is the trade wrong (SL beyond structure)?\n';
+    out += '6. R:R to next opposing level — does it meet playbook minimum?\n';
+    out += '7. Emotion / daily loss limit — allowed to take risk right now?\n\n';
+    if(notes) out += 'Your notes:\n'+notes+'\n\n';
+    out += 'Reminder: wait for your A+ trigger. No entry from this checklist alone.';
+    document.getElementById('azOut').textContent = out;
+  }
+  document.getElementById('azLocal').addEventListener('click', localChecklist);
+
+  async function runMistral(){
+    const key = document.getElementById('az_mistral').value.trim();
+    if(!key){
+      document.getElementById('azOut').textContent = 'Add a Mistral API key (or use Local checklist).';
+      return;
+    }
+    await storageSet(MISTRAL_KEY, key);
+    const pair = document.getElementById('az_pair').value;
+    const sess = document.getElementById('az_session').value;
+    const notes = document.getElementById('az_notes').value.trim();
+    let playbook = '';
+    try{
+      const pb = await storageGet(PLAYBOOK_KEY);
+      if(pb && pb.rules) playbook = pb.rules;
+    }catch(e){}
+
+    const system = `You are a cautious trading journal assistant for a discretionary forex trader.
+You do NOT give financial advice or tell the user to buy/sell.
+You only help them observe structure: trend, support/resistance, supply/demand, liquidity, session context.
+Always end with: decisions and risk remain with the trader; this is not a signal.
+Keep under 250 words. Use short bullets.`;
+
+    const userText = `Pair: ${pair}
+Session context: ${sess}
+Trader notes: ${notes || '(none)'}
+Playbook rules (if any):
+${playbook || '(not set)'}
+
+Describe possible structure (HTF bias, nearby S/R or supply/demand, what to wait for before any entry). List risks of acting too early. Do not say "enter long/short now".`;
+
+    document.getElementById('azOut').textContent = 'Analyzing…';
+    const content = [{ type: 'text', text: userText }];
+    if(azShot && azShot.startsWith('data:image')){
+      content.push({ type: 'image_url', image_url: azShot });
+    }
+
+    try{
+      // Try vision-capable model first; fall back to text-only
+      const models = azShot ? ['pixtral-12b-2409', 'mistral-small-latest'] : ['mistral-small-latest'];
+      let res, data, lastErr;
+      for(const model of models){
+        const body = {
+          model,
+          messages: [
+            { role: 'system', content: system },
+            { role: 'user', content: azShot && model.includes('pixtral') ? content : userText }
+          ],
+          temperature: 0.3,
+          max_tokens: 500
+        };
+        res = await fetch('https://api.mistral.ai/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer ' + key
+          },
+          body: JSON.stringify(body)
+        });
+        data = await res.json().catch(()=>({}));
+        if(res.ok) break;
+        lastErr = data.error && data.error.message ? data.error.message : (res.status+' '+JSON.stringify(data).slice(0,200));
+      }
+      if(!res.ok){
+        document.getElementById('azOut').textContent = 'Mistral error: '+lastErr+'\n\nYou can still use Local checklist.';
+        return;
+      }
+      const text = data.choices && data.choices[0] && data.choices[0].message
+        ? data.choices[0].message.content
+        : JSON.stringify(data).slice(0,400);
+      document.getElementById('azOut').textContent = text;
+    }catch(err){
+      document.getElementById('azOut').textContent = 'Request failed: '+err.message+'\n(CORS or network. If blocked in browser, use a small backend/Supabase Edge Function next.)';
+    }
+  }
+  document.getElementById('azRun').addEventListener('click', runMistral);
+
+  // session check loop
+  loadWatch().then(()=> checkSessions(true));
+  setInterval(()=> checkSessions(false), 60000);
+
 
   loadTrades();
 })();
