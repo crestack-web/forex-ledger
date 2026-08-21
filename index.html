@@ -2316,6 +2316,25 @@ No generic advice that ignores the numbers.`;
 
 
   const AV_KEY = 'forex-ledger-av';
+  const QUOTE_CACHE = 'forex-ledger-qcache';
+  const QUOTE_TTL_MS = 15 * 60 * 1000;
+
+  function quoteCacheGet(key){
+    try{
+      const all = JSON.parse(sessionStorage.getItem(QUOTE_CACHE) || '{}');
+      const row = all[key];
+      if(row && Date.now() - row.t < QUOTE_TTL_MS) return row.v;
+    }catch(e){}
+    return null;
+  }
+  function quoteCacheSet(key, v){
+    try{
+      const all = JSON.parse(sessionStorage.getItem(QUOTE_CACHE) || '{}');
+      all[key] = { t: Date.now(), v };
+      sessionStorage.setItem(QUOTE_CACHE, JSON.stringify(all));
+    }catch(e){}
+  }
+
 
   async function loadAvKey(){
     const k = await storageGet(AV_KEY);
@@ -2354,8 +2373,8 @@ No generic advice that ignores the numbers.`;
       if(data.error){
         throw new Error(String(data.error));
       }
-      if(data.Note) throw new Error('Rate limit: ' + String(data.Note).slice(0, 120));
-      if(data.Information) throw new Error(String(data.Information).slice(0, 140));
+      if(data.Note) throw new Error(String(data.Note));
+      if(data.Information) throw new Error(String(data.Information));
       if(data['Error Message']) throw new Error(data['Error Message']);
       if(data['Realtime Currency Exchange Rate'] || data['Time Series FX (Daily)']){
         return data;
@@ -2427,22 +2446,54 @@ No generic advice that ignores the numbers.`;
     };
   }
 
+  function friendlyAvError(msg){
+    const s = String(msg || '');
+    if(/thank you for using alpha vantage|premium|call frequency|rate limit|25 requests|consider our/i.test(s)){
+      return 'API limit — wait ~1 min (free tier)';
+    }
+    return s.slice(0, 80);
+  }
+
+  async function fetchSpotOnly(pair){
+    const meta = parsePair(pair);
+    if(!meta) return { pair, error: 'Bad pair' };
+    const cacheKey = 'spot:' + pair;
+    const cached = quoteCacheGet(cacheKey);
+    if(cached) return Object.assign({}, cached, { cached: true });
+
+    const spot = await avFetch({
+      function: 'CURRENCY_EXCHANGE_RATE',
+      from_currency: meta.from,
+      to_currency: meta.to
+    });
+    const r = spot['Realtime Currency Exchange Rate'] || {};
+    const rate = r['5. Exchange Rate'] ? parseFloat(r['5. Exchange Rate']) : null;
+    const bid = r['8. Bid Price'] ? parseFloat(r['8. Bid Price']) : null;
+    const ask = r['9. Ask Price'] ? parseFloat(r['9. Ask Price']) : null;
+    const ts = r['6. Last Refreshed'] || '';
+    if(rate == null){
+      return { pair, error: friendlyAvError(JSON.stringify(spot).slice(0, 160)) };
+    }
+    const out = { pair: pair, rate: rate, bid: bid, ask: ask, ts: ts };
+    quoteCacheSet(cacheKey, out);
+    return out;
+  }
+
   async function fetchQuote(pair){
     const meta = parsePair(pair);
     if(!meta) return { pair, error: 'Bad pair' };
+    const cacheKey = 'full:' + pair;
+    const cached = quoteCacheGet(cacheKey);
+    if(cached) return Object.assign({}, cached, { cached: true });
+
     let rate = null, bid = null, ask = null, ts = '';
     try{
-      const spot = await avFetch({
-        function: 'CURRENCY_EXCHANGE_RATE',
-        from_currency: meta.from,
-        to_currency: meta.to
-      });
-      const r = spot['Realtime Currency Exchange Rate'] || {};
-      rate = r['5. Exchange Rate'] ? parseFloat(r['5. Exchange Rate']) : null;
-      bid = r['8. Bid Price'] ? parseFloat(r['8. Bid Price']) : null;
-      ask = r['9. Ask Price'] ? parseFloat(r['9. Ask Price']) : null;
-      ts = r['6. Last Refreshed'] || '';
-    }catch(e){}
+      const spot = await fetchSpotOnly(pair);
+      if(spot.error && spot.rate == null) return { pair: pair, error: friendlyAvError(spot.error) };
+      rate = spot.rate; bid = spot.bid; ask = spot.ask; ts = spot.ts;
+    }catch(e){
+      return { pair: pair, error: friendlyAvError(e.message) };
+    }
 
     let dailyMeta = {};
     try{
@@ -2452,15 +2503,20 @@ No generic advice that ignores the numbers.`;
         to_currency: meta.to
       });
       const series = daily['Time Series FX (Daily)'] || {};
-      dailyMeta = analyzeSeries(pair, rate, series);
-      if(rate == null && dailyMeta.close != null) rate = dailyMeta.close;
+      if(Object.keys(series).length){
+        dailyMeta = analyzeSeries(pair, rate, series);
+        if(rate == null && dailyMeta.close != null) rate = dailyMeta.close;
+      }
     }catch(e){
-      if(rate == null) return { pair, error: e.message || 'No data' };
+      dailyMeta = { dailyError: friendlyAvError(e.message) };
     }
 
-    return { pair, rate, bid, ask, ts, ...dailyMeta };
+    const out = Object.assign({ pair: pair, rate: rate, bid: bid, ask: ask, ts: ts }, dailyMeta);
+    if(rate != null) quoteCacheSet(cacheKey, out);
+    return out;
   }
 
+  function formatMarketSnapshot
   function formatMarketSnapshot(q){
     if(!q || q.error) return q && q.error ? String(q.error) : 'No market data';
     const p = q.pair || '';
@@ -2587,8 +2643,8 @@ No generic advice that ignores the numbers.`;
       const p = pairs[i];
       const id = p.replace('/','');
       try{
-        if(i>0) await new Promise(r=>setTimeout(r, 12000));
-        const q = await fetchQuote(p);
+        if(i>0) await new Promise(r=>setTimeout(r, 20000));
+        const q = await fetchSpotOnly(p);
         const rateEl = document.getElementById('wr-'+id);
         const metaEl = document.getElementById('wm-'+id);
         if(!rateEl) continue;
@@ -2602,13 +2658,13 @@ No generic advice that ignores the numbers.`;
           metaEl.textContent = m || 'tap to analyze';
         }else{
           rateEl.textContent = '—';
-          metaEl.textContent = (q.error || 'no data').slice(0,48);
+          metaEl.textContent = friendlyAvError(q.error || 'no data');
         }
       }catch(e){
         const rateEl = document.getElementById('wr-'+id);
         const metaEl = document.getElementById('wm-'+id);
         if(rateEl) rateEl.textContent = '—';
-        if(metaEl) metaEl.textContent = (e.message||'quote failed').slice(0,48);
+        if(metaEl) metaEl.textContent = friendlyAvError(e.message||'quote failed');
       }
     }
   }
