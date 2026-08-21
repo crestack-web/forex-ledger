@@ -2336,42 +2336,34 @@ No generic advice that ignores the numbers.`;
       const from = params.from_currency;
       const to = params.to_currency;
       const mode = fn === 'FX_DAILY' ? 'daily' : 'spot';
+      const proxyUrl = '/api/fx?from=' + encodeURIComponent(from) + '&to=' + encodeURIComponent(to) + '&mode=' + mode;
+      let proxyRes;
       try{
-        const proxy = await fetch('/api/fx?from=' + encodeURIComponent(from) + '&to=' + encodeURIComponent(to) + '&mode=' + mode);
-        const data = await proxy.json().catch(() => ({}));
-        if(proxy.ok && data && !data.error){
-          if(data.Note) throw new Error('Rate limit: ' + String(data.Note).slice(0, 100));
-          if(data.Information) throw new Error(String(data.Information).slice(0, 120));
-          if(data['Error Message']) throw new Error(data['Error Message']);
-          // valid AV payload
-          if(data['Realtime Currency Exchange Rate'] || data['Time Series FX (Daily)']) return data;
-          // empty unexpected
-        }
-        if(data && data.error){
-          // server misconfig — show clearly
-          throw new Error(data.error);
-        }
-        if(!proxy.ok && proxy.status === 404){
-          // not on Vercel or API route missing — try client key
-        } else if(!proxy.ok){
-          throw new Error('Quote API HTTP ' + proxy.status);
-        }
-      }catch(e){
-        if(e.message && (e.message.includes('ALPHA_VANTAGE') || e.message.includes('Rate limit') || e.message.includes('Quote API'))) throw e;
-        // network / 404 fall through to browser key
+        proxyRes = await fetch(proxyUrl);
+      }catch(netErr){
+        throw new Error('Cannot reach /api/fx (network). Are you on the Vercel URL?');
       }
+      const text = await proxyRes.text();
+      let data = {};
+      try{ data = JSON.parse(text); }catch(_){
+        if(proxyRes.status === 404){
+          throw new Error('/api/fx not found (404). Redeploy on Vercel so the api/ folder is published.');
+        }
+        throw new Error('/api/fx returned non-JSON (HTTP ' + proxyRes.status + '). Check Vercel function logs.');
+      }
+      if(data.error){
+        throw new Error(String(data.error));
+      }
+      if(data.Note) throw new Error('Rate limit: ' + String(data.Note).slice(0, 120));
+      if(data.Information) throw new Error(String(data.Information).slice(0, 140));
+      if(data['Error Message']) throw new Error(data['Error Message']);
+      if(data['Realtime Currency Exchange Rate'] || data['Time Series FX (Daily)']){
+        return data;
+      }
+      // Unexpected shape
+      throw new Error('Unexpected quote response. HTTP ' + proxyRes.status + '. Try again or check AV free-tier limits.');
     }
-    const key = (document.getElementById('av_key') && document.getElementById('av_key').value.trim())
-      || (await storageGet(AV_KEY)) || '';
-    if(!key) throw new Error('No quotes: set ALPHA_VANTAGE_API on Vercel, or paste key in Sessions');
-    const q = new URLSearchParams({ ...params, apikey: key });
-    const url = 'https://www.alphavantage.co/query?' + q.toString();
-    const res = await fetch(url);
-    const data = await res.json();
-    if(data.Note) throw new Error('Rate limit: ' + String(data.Note).slice(0, 100));
-    if(data.Information) throw new Error(String(data.Information).slice(0, 120));
-    if(data['Error Message']) throw new Error(data['Error Message']);
-    return data;
+    throw new Error('Unsupported quote request');
   }
 
 

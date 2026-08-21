@@ -1,3 +1,6 @@
 {
-  "rewrites": [{ "source": "/api/fx", "destination": "/api/fx" }]
+  "version": 2,
+  "rewrites": [
+    { "source": "/((?!api/).*)", "destination": "/index.html" }
+  ]
 }
