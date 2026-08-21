@@ -39,3 +39,14 @@ Nothing is sent to a server. Export is not built-in yet — for backup, use brow
 ## License
 
 Personal use. Do what you want with it.
+
+## Alpha Vantage (optional quotes)
+
+1. Get a free key at https://www.alphavantage.co/support/#api-key
+2. **Local / GitHub Pages:** Sessions → paste key (stored in browser only)
+3. **Vercel (recommended):**  
+   - Deploy this repo to Vercel  
+   - Project → Settings → Environment Variables → `ALPHA_VANTAGE_KEY` = your key  
+   - Quotes go through `/api/fx` so the key never ships to the browser  
+
+Free tier is rate-limited (~25 requests/day). Prefer 1–2 watchlist pairs.

@@ -814,9 +814,20 @@
     </div>
 
     <div class="field full" style="margin-top:16px;">
+      <label>Alpha Vantage API key (optional)</label>
+      <input id="av_key" type="password" placeholder="Stored only in this browser" autocomplete="off" />
+      <p class="disclaimer">Free tier is limited (~25 calls/day). On Vercel, prefer a serverless route so the key is not in the client. Never commit the key to Git.</p>
+    </div>
+
+    <div class="field full" style="margin-top:12px;">
       <label>Browser notifications</label>
       <button type="button" class="btn-ghost" id="enableNotif" style="margin-top:6px;">Enable notifications</button>
-      <p class="disclaimer" id="notifStatus">Alerts fire while this page is open (or installed as a tab you keep around). Background push needs a backend later (e.g. Supabase).</p>
+      <p class="disclaimer" id="notifStatus">Alerts fire while this page is open. Background push needs a backend later.</p>
+    </div>
+
+    <div class="field full" style="margin-top:12px;">
+      <button type="button" class="btn-ghost" id="refreshQuotes" style="width:100%;">Refresh quotes for watchlist</button>
+      <div class="analyze-out" id="quoteBox" style="margin-top:10px;"></div>
     </div>
 
     <p class="disclaimer">Times are approximate session opens in <span id="tzLabel"></span>. Adjust to match how you trade. This is a reminder to review charts — not a trade signal.</p>
@@ -2214,6 +2225,157 @@ Describe possible structure (HTF bias, nearby S/R or supply/demand, what to wait
   // session check loop
   loadWatch().then(()=> checkSessions(true));
   setInterval(()=> checkSessions(false), 60000);
+
+
+
+  const AV_KEY = 'forex-ledger-av';
+
+  async function loadAvKey(){
+    const k = await storageGet(AV_KEY);
+    if(k) document.getElementById('av_key').value = k;
+  }
+
+  function parsePair(pair){
+    // EUR/USD -> from EUR to USD
+    const p = (pair||'').replace('XAU','XAU').replace('XAG','XAG');
+    const parts = p.split('/');
+    if(parts.length !== 2) return null;
+    return { from: parts[0].trim(), to: parts[1].trim(), label: pair };
+  }
+
+  async function avFetch(params){
+    // Prefer same-origin /api/fx on Vercel (key stays in ALPHA_VANTAGE_KEY env)
+    const fn = params.function || '';
+    if(fn === 'CURRENCY_EXCHANGE_RATE' || fn === 'FX_DAILY'){
+      const from = params.from_currency;
+      const to = params.to_currency;
+      const mode = fn === 'FX_DAILY' ? 'daily' : 'spot';
+      try{
+        const proxy = await fetch('/api/fx?from='+encodeURIComponent(from)+'&to='+encodeURIComponent(to)+'&mode='+mode);
+        if(proxy.ok){
+          const data = await proxy.json();
+          if(!data.error && !data.Note && !data.Information) return data;
+        }
+      }catch(e){ /* not on Vercel or proxy missing — fall through */ }
+    }
+    const key = (document.getElementById('av_key') && document.getElementById('av_key').value.trim())
+      || (await storageGet(AV_KEY)) || '';
+    if(!key) throw new Error('Add Alpha Vantage key in Sessions, or set ALPHA_VANTAGE_KEY on Vercel (/api/fx).');
+    const q = new URLSearchParams({ ...params, apikey: key });
+    const url = 'https://www.alphavantage.co/query?' + q.toString();
+    const res = await fetch(url);
+    const data = await res.json();
+    if(data.Note) throw new Error('Alpha Vantage rate limit: '+data.Note.slice(0,120));
+    if(data.Information) throw new Error(data.Information.slice(0,160));
+    if(data['Error Message']) throw new Error(data['Error Message']);
+    return data;
+  }
+
+  async function fetchQuote(pair){
+    const meta = parsePair(pair);
+    if(!meta) return { pair, error: 'Bad pair' };
+    // Spot
+    const spot = await avFetch({
+      function: 'CURRENCY_EXCHANGE_RATE',
+      from_currency: meta.from,
+      to_currency: meta.to
+    });
+    const r = spot['Realtime Currency Exchange Rate'] || {};
+    const rate = r['5. Exchange Rate'] ? parseFloat(r['5. Exchange Rate']) : null;
+    const bid = r['8. Bid Price'] ? parseFloat(r['8. Bid Price']) : null;
+    const ask = r['9. Ask Price'] ? parseFloat(r['9. Ask Price']) : null;
+    const ts = r['6. Last Refreshed'] || '';
+
+    // Daily for high/low (uses 1 API call)
+    let high = null, low = null, prevClose = null, changePct = null;
+    try{
+      const daily = await avFetch({
+        function: 'FX_DAILY',
+        from_currency: meta.from,
+        to_currency: meta.to
+      });
+      const series = daily['Time Series FX (Daily)'] || {};
+      const days = Object.keys(series).sort().reverse();
+      if(days[0]){
+        const d0 = series[days[0]];
+        high = parseFloat(d0['2. high']);
+        low = parseFloat(d0['3. low']);
+        const close = parseFloat(d0['4. close']);
+        if(days[1]){
+          prevClose = parseFloat(series[days[1]]['4. close']);
+          if(prevClose && close) changePct = ((close - prevClose) / prevClose) * 100;
+        }
+      }
+    }catch(e){ /* daily optional if rate limited */ }
+
+    return { pair, rate, bid, ask, ts, high, low, prevClose, changePct };
+  }
+
+  async function refreshWatchQuotes(){
+    const box = document.getElementById('quoteBox');
+    if(!box) return;
+    const pairs = watchConfig.pairs || [];
+    if(!pairs.length){
+      box.textContent = 'Select at least one pair in the watchlist.';
+      return;
+    }
+    box.textContent = 'Fetching '+pairs.length+' pair(s)… (free tier is slow / limited)';
+    const lines = [];
+    for(let i=0;i<pairs.length;i++){
+      try{
+        // Small delay to respect free tier
+        if(i>0) await new Promise(r=>setTimeout(r, 15000));
+        const q = await fetchQuote(pairs[i]);
+        if(q.error){ lines.push(pairs[i]+': '+q.error); continue; }
+        let line = q.pair+': '+(q.rate != null ? q.rate.toFixed(q.pair.includes('JPY')?3:5) : '—');
+        if(q.changePct != null) line += '  ('+(q.changePct>=0?'+':'')+q.changePct.toFixed(2)+'% vs prior day)';
+        if(q.low != null && q.high != null) line += '  · day '+q.low.toFixed(q.pair.includes('JPY')?3:5)+' – '+q.high.toFixed(q.pair.includes('JPY')?3:5);
+        if(q.ts) line += '  · '+q.ts;
+        lines.push(line);
+      }catch(err){
+        lines.push(pairs[i]+': '+err.message);
+      }
+    }
+    box.textContent = lines.join('\n');
+    return lines;
+  }
+
+  // Hook save sessions to also save AV key
+  const _sessSave = document.getElementById('sessionsSave');
+  if(_sessSave){
+    _sessSave.addEventListener('click', async ()=>{
+      const k = document.getElementById('av_key').value.trim();
+      if(k) await storageSet(AV_KEY, k);
+    });
+  }
+
+  document.getElementById('openSessions').addEventListener('click', ()=> loadAvKey());
+  const rq = document.getElementById('refreshQuotes');
+  if(rq) rq.addEventListener('click', ()=> refreshWatchQuotes());
+
+  // Enrich session banner with one quote when session hits (1 pair only to save quota)
+  const _checkSessionsOrig = checkSessions;
+  checkSessions = async function(forceBanner){
+    _checkSessionsOrig(forceBanner);
+    const hits = activeSessionHits();
+    if(!hits.length) return;
+    const key = (await storageGet(AV_KEY)) || (document.getElementById('av_key') && document.getElementById('av_key').value.trim());
+    if(!key) return;
+    const pair = (watchConfig.pairs && watchConfig.pairs[0]) || 'USD/JPY';
+    const banner = document.getElementById('sessionBanner');
+    try{
+      const q = await fetchQuote(pair);
+      if(q.rate != null && banner){
+        let extra = '<br><span style="color:var(--chalk-dim)">'+pair+' ≈ <strong style="color:var(--chalk)">'+q.rate.toFixed(pair.includes('JPY')?3:5)+'</strong>';
+        if(q.low != null && q.high != null) extra += ' · day range '+q.low.toFixed(pair.includes('JPY')?3:5)+'–'+q.high.toFixed(pair.includes('JPY')?3:5);
+        if(q.changePct != null) extra += ' · '+(q.changePct>=0?'+':'')+q.changePct.toFixed(2)+'% d/d';
+        extra += '</span>';
+        if(!banner.innerHTML.includes(pair+' ≈')) banner.innerHTML += extra;
+      }
+    }catch(e){
+      /* silent — quota or network */
+    }
+  };
 
 
   loadTrades();
