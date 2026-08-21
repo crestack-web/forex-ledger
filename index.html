@@ -816,7 +816,7 @@
     <div class="field full" style="margin-top:16px;">
       <label>Alpha Vantage API key (optional)</label>
       <input id="av_key" type="password" placeholder="Stored only in this browser" autocomplete="off" />
-      <p class="disclaimer">Free tier is limited (~25 calls/day). On Vercel, prefer a serverless route so the key is not in the client. Never commit the key to Git.</p>
+      <p class="disclaimer">Free tier is limited (~25 calls/day). On Vercel, prefer a serverless route with env ALPHA_VANTAGE_API so the key is not in the client. Never commit the key to Git.</p>
     </div>
 
     <div class="field full" style="margin-top:12px;">
@@ -2260,7 +2260,7 @@ Describe possible structure (HTF bias, nearby S/R or supply/demand, what to wait
     }
     const key = (document.getElementById('av_key') && document.getElementById('av_key').value.trim())
       || (await storageGet(AV_KEY)) || '';
-    if(!key) throw new Error('Add Alpha Vantage key in Sessions, or set ALPHA_VANTAGE_KEY on Vercel (/api/fx).');
+    if(!key) throw new Error('Add Alpha Vantage key in Sessions, or set ALPHA_VANTAGE_API on Vercel (/api/fx).');
     const q = new URLSearchParams({ ...params, apikey: key });
     const url = 'https://www.alphavantage.co/query?' + q.toString();
     const res = await fetch(url);

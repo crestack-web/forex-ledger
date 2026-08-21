@@ -46,7 +46,7 @@ Personal use. Do what you want with it.
 2. **Local / GitHub Pages:** Sessions → paste key (stored in browser only)
 3. **Vercel (recommended):**  
    - Deploy this repo to Vercel  
-   - Project → Settings → Environment Variables → `ALPHA_VANTAGE_KEY` = your key  
+   - Project → Settings → Environment Variables → `ALPHA_VANTAGE_API` = your key  
    - Quotes go through `/api/fx` so the key never ships to the browser  
 
 Free tier is rate-limited (~25 requests/day). Prefer 1–2 watchlist pairs.
