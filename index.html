@@ -2154,24 +2154,35 @@
     e.target.value = '';
   });
 
-  function localChecklist(){
+  async function localChecklist(){
     const pair = document.getElementById('az_pair').value;
     const sess = document.getElementById('az_session').value;
     const notes = document.getElementById('az_notes').value.trim();
-    const pb = document.getElementById('playbookRules') ? document.getElementById('playbookRules').value : '';
-    let out = 'LOCAL STRUCTURE CHECKLIST — '+pair+' · '+sess+'\n\n';
-    out += '1. Mark higher-timeframe bias (D1/H4).\n';
-    out += '2. Identify nearest clear support / resistance or supply / demand.\n';
-    out += '3. Is price at a level, mid-range, or in a trend leg?\n';
-    out += '4. Session: does '+sess+' typically respect this pair’s liquidity here?\n';
-    out += '5. Invalidation: where is the trade wrong (SL beyond structure)?\n';
-    out += '6. R:R to next opposing level — does it meet playbook minimum?\n';
-    out += '7. Emotion / daily loss limit — allowed to take risk right now?\n\n';
-    if(notes) out += 'Your notes:\n'+notes+'\n\n';
-    out += 'Reminder: wait for your A+ trigger. No entry from this checklist alone.';
+    document.getElementById('azOut').textContent = 'Loading market data…';
+    const ctx = await gatherMarketContext(pair);
+    let out = 'MARKET SNAPSHOT\n' + ctx.text + '\n\n';
+    out += 'STRUCTURE CHECKLIST — ' + pair + ' · ' + sess + '\n\n';
+    const q = ctx.quote;
+    if(q && !q.error){
+      if(q.location) out += '• Price is ' + q.location + '.\n';
+      if(q.distHighPips != null) out += '• ~' + q.distHighPips.toFixed(1) + ' pips from day high; ~' + q.distLowPips.toFixed(1) + ' pips from day low.\n';
+      if(q.trend) out += '• Recent daily trend: ' + q.trend + '.\n';
+      if(q.rangePips != null) out += '• Today range ≈ ' + q.rangePips.toFixed(1) + ' pips.\n';
+      if(q.swingHigh != null) out += '• 10d swing high ' + q.swingHigh + ' / low ' + q.swingLow + '.\n';
+    }
+    out += '\n1. Mark HTF bias on your chart against these levels.\n';
+    out += '2. Day high / swing high = resistance candidates; day low / swing low = support candidates.\n';
+    out += '3. Near extremes: wait for rejection or break-retest — do not chase mid-air.\n';
+    out += '4. Mid-range: often wait for break of day high/low or return to a clear level.\n';
+    out += '5. Session (' + sess + '): does liquidity here fit your playbook?\n';
+    out += '6. Size risk from pip distance to invalidation (snapshot distances help).\n';
+    out += '7. Only take A+ setups if daily loss limit allows.\n\n';
+    if(notes) out += 'Your notes:\n' + notes + '\n\n';
+    out += 'Not a signal. Wait for your A+ trigger.';
     document.getElementById('azOut').textContent = out;
   }
-  document.getElementById('azLocal').addEventListener('click', localChecklist);
+
+  document.getElementById('azLocal').addEventListener('click', () => localChecklist());
 
 
   async function callMistral(messages, hasImage){
@@ -2211,19 +2222,12 @@
   }
 
   async function gatherMarketContext(pair){
-    const lines = [];
     try{
       const q = await fetchQuote(pair);
-      if(q.rate != null){
-        lines.push(pair+' last ≈ '+q.rate.toFixed(pair.includes('JPY')?3:5));
-        if(q.low != null && q.high != null) lines.push('Day range: '+q.low.toFixed(pair.includes('JPY')?3:5)+' – '+q.high.toFixed(pair.includes('JPY')?3:5));
-        if(q.changePct != null) lines.push('Vs prior day close: '+(q.changePct>=0?'+':'')+q.changePct.toFixed(2)+'%');
-        if(q.ts) lines.push('Quote time: '+q.ts);
-      } else if(q.error) lines.push(pair+': '+q.error);
+      return { text: formatMarketSnapshot(q), quote: q };
     }catch(e){
-      lines.push(pair+': could not fetch quote ('+e.message+'). Tips will use notes/chart only.');
+      return { text: pair + ': could not fetch quote (' + e.message + ').', quote: null };
     }
-    return lines.join('\n');
   }
 
   async function runMistral(){
@@ -2237,25 +2241,35 @@
     }catch(e){}
 
     document.getElementById('azOut').textContent = 'Loading market data + tips…';
-    const market = await gatherMarketContext(pair);
+    const ctx = await gatherMarketContext(pair);
+    const market = (ctx && ctx.text) ? ctx.text : '(no quote available)';
+    const q = ctx && ctx.quote;
 
     const system = `You are a cautious forex market assistant inside a trading journal.
-Use the provided live/delayed market snapshot and any chart description.
-Give practical structure tips: bias, nearby support/resistance or supply/demand, what the current move may mean for the session, what to wait for.
+You MUST ground every observation in the MARKET SNAPSHOT numbers (price, day high/low, pip distances, trend, swing levels).
+Do not invent price levels that are not in the snapshot or trader notes.
+Helpful structure: where price sits in the day range, proximity to high/low/swing levels, continuation vs mean-reversion, what confirmation to wait for this session.
 Do NOT say "buy now" or "sell now". Do NOT promise profits.
-Frame ideas as observations and questions against a discretionary playbook.
+Use short bullets and cite concrete numbers from the snapshot.
 End with: This is not financial advice; the trader decides risk.`;
 
     const userText = `Pair: ${pair}
 Session context: ${sess}
-Market snapshot:
+
+MARKET SNAPSHOT (from data API — source of truth):
 ${market || '(no quote available)'}
 
 Trader notes: ${notes || '(none)'}
 Playbook:
 ${playbook || '(not set)'}
 
-Based on the current move and levels, give short bullet tips a discretionary trader could use before considering an entry. Include invalidation ideas.`;
+Using ONLY the snapshot numbers (and notes/chart if present), give practical bullets:
+1) What the current move is doing relative to day range and recent trend (cite pips / %)
+2) Nearest levels from the data (day high/low, swing high/low) and distance in pips
+3) Two scenarios: continuation vs rejection at those levels
+4) What to wait for before any entry
+5) Invalidation idea if trading the clearer side of the range
+No generic advice that ignores the numbers.`;
 
     const hasImage = !!(azShot && azShot.startsWith('data:image'));
     const userContent = hasImage
@@ -2285,7 +2299,7 @@ Based on the current move and levels, give short bullet tips a discretionary tra
         ? data.choices[0].message.content
         : JSON.stringify(data).slice(0, 500);
       document.getElementById('azOut').textContent =
-        (market ? 'MARKET\n'+market+'\n\nTIPS\n' : '') + text;
+        (market ? 'MARKET\n' + market + '\n\nTIPS\n' : '') + text;
     }catch(err){
       document.getElementById('azOut').textContent =
         (market ? 'MARKET\n'+market+'\n\n' : '') +
@@ -2344,23 +2358,85 @@ Based on the current move and levels, give short bullet tips a discretionary tra
     return data;
   }
 
+
+  function pipFactor(pair){
+    if(!pair) return 10000;
+    if(pair.includes('JPY')) return 100;
+    if(pair.includes('XAU')) return 10;
+    return 10000;
+  }
+
+  function analyzeSeries(pair, rate, series){
+    const days = Object.keys(series || {}).sort().reverse();
+    if(!days.length) return {};
+    const bars = days.slice(0, 10).map(d => {
+      const b = series[d];
+      return {
+        date: d,
+        o: parseFloat(b['1. open']),
+        h: parseFloat(b['2. high']),
+        l: parseFloat(b['3. low']),
+        c: parseFloat(b['4. close'])
+      };
+    });
+    const today = bars[0];
+    const prev = bars[1];
+    const high = today.h, low = today.l, open = today.o, close = today.c;
+    const px = rate != null ? rate : close;
+    const range = high - low;
+    const pf = pipFactor(pair);
+    const rangePips = range * pf;
+    const pos = range > 0 ? (px - low) / range : 0.5;
+    const distHighPips = (high - px) * pf;
+    const distLowPips = (px - low) * pf;
+    let changePct = null, prevClose = null;
+    if(prev){
+      prevClose = prev.c;
+      if(prevClose) changePct = ((close - prevClose) / prevClose) * 100;
+    }
+    const closes = bars.slice(0, 5).map(b => b.c).filter(x => !isNaN(x));
+    let trend = 'mixed';
+    if(closes.length >= 3){
+      const first = closes[closes.length - 1];
+      const last = closes[0];
+      const move = ((last - first) / first) * 100;
+      if(move > 0.15) trend = 'up';
+      else if(move < -0.15) trend = 'down';
+      else trend = 'range';
+    }
+    const swingHigh = Math.max(...bars.map(b => b.h));
+    const swingLow = Math.min(...bars.map(b => b.l));
+    let location = 'mid-range';
+    if(pos >= 0.8) location = 'near day high (possible resistance / supply)';
+    else if(pos <= 0.2) location = 'near day low (possible support / demand)';
+    else if(pos >= 0.6) location = 'upper half of day range';
+    else if(pos <= 0.4) location = 'lower half of day range';
+
+    return {
+      high, low, open, close, prevClose, changePct,
+      rangePips, distHighPips, distLowPips, pos, trend, location,
+      swingHigh, swingLow, bars, dayDate: today.date
+    };
+  }
+
   async function fetchQuote(pair){
     const meta = parsePair(pair);
     if(!meta) return { pair, error: 'Bad pair' };
-    // Spot
-    const spot = await avFetch({
-      function: 'CURRENCY_EXCHANGE_RATE',
-      from_currency: meta.from,
-      to_currency: meta.to
-    });
-    const r = spot['Realtime Currency Exchange Rate'] || {};
-    const rate = r['5. Exchange Rate'] ? parseFloat(r['5. Exchange Rate']) : null;
-    const bid = r['8. Bid Price'] ? parseFloat(r['8. Bid Price']) : null;
-    const ask = r['9. Ask Price'] ? parseFloat(r['9. Ask Price']) : null;
-    const ts = r['6. Last Refreshed'] || '';
+    let rate = null, bid = null, ask = null, ts = '';
+    try{
+      const spot = await avFetch({
+        function: 'CURRENCY_EXCHANGE_RATE',
+        from_currency: meta.from,
+        to_currency: meta.to
+      });
+      const r = spot['Realtime Currency Exchange Rate'] || {};
+      rate = r['5. Exchange Rate'] ? parseFloat(r['5. Exchange Rate']) : null;
+      bid = r['8. Bid Price'] ? parseFloat(r['8. Bid Price']) : null;
+      ask = r['9. Ask Price'] ? parseFloat(r['9. Ask Price']) : null;
+      ts = r['6. Last Refreshed'] || '';
+    }catch(e){}
 
-    // Daily for high/low (uses 1 API call)
-    let high = null, low = null, prevClose = null, changePct = null;
+    let dailyMeta = {};
     try{
       const daily = await avFetch({
         function: 'FX_DAILY',
@@ -2368,23 +2444,49 @@ Based on the current move and levels, give short bullet tips a discretionary tra
         to_currency: meta.to
       });
       const series = daily['Time Series FX (Daily)'] || {};
-      const days = Object.keys(series).sort().reverse();
-      if(days[0]){
-        const d0 = series[days[0]];
-        high = parseFloat(d0['2. high']);
-        low = parseFloat(d0['3. low']);
-        const close = parseFloat(d0['4. close']);
-        if(days[1]){
-          prevClose = parseFloat(series[days[1]]['4. close']);
-          if(prevClose && close) changePct = ((close - prevClose) / prevClose) * 100;
-        }
-      }
-    }catch(e){ /* daily optional if rate limited */ }
+      dailyMeta = analyzeSeries(pair, rate, series);
+      if(rate == null && dailyMeta.close != null) rate = dailyMeta.close;
+    }catch(e){
+      if(rate == null) return { pair, error: e.message || 'No data' };
+    }
 
-    return { pair, rate, bid, ask, ts, high, low, prevClose, changePct };
+    return { pair, rate, bid, ask, ts, ...dailyMeta };
   }
 
-  async function refreshWatchQuotes(){
+  function formatMarketSnapshot(q){
+    if(!q || q.error) return q && q.error ? String(q.error) : 'No market data';
+    const p = q.pair || '';
+    const j = p.includes('JPY');
+    const dp = j ? 3 : 5;
+    const lines = [];
+    lines.push('Pair: ' + p);
+    if(q.rate != null) lines.push('Last price: ' + q.rate.toFixed(dp));
+    if(q.bid != null && q.ask != null) lines.push('Bid/Ask: ' + q.bid.toFixed(dp) + ' / ' + q.ask.toFixed(dp));
+    if(q.dayDate) lines.push('Daily bar date: ' + q.dayDate);
+    if(q.open != null) lines.push('Day open: ' + q.open.toFixed(dp));
+    if(q.high != null && q.low != null){
+      lines.push('Day high: ' + q.high.toFixed(dp));
+      lines.push('Day low: ' + q.low.toFixed(dp));
+      if(q.rangePips != null) lines.push('Day range: ~' + q.rangePips.toFixed(1) + ' pips');
+    }
+    if(q.distHighPips != null) lines.push('Distance to day high: ~' + q.distHighPips.toFixed(1) + ' pips');
+    if(q.distLowPips != null) lines.push('Distance to day low: ~' + q.distLowPips.toFixed(1) + ' pips');
+    if(q.location) lines.push('Position in day range: ' + q.location);
+    if(q.changePct != null) lines.push('Change vs prior day close: ' + (q.changePct>=0?'+':'') + q.changePct.toFixed(2) + '%');
+    if(q.prevClose != null) lines.push('Prior day close: ' + q.prevClose.toFixed(dp));
+    if(q.trend) lines.push('Recent daily closes (~5d): ' + q.trend);
+    if(q.swingHigh != null && q.swingLow != null){
+      lines.push('10-day swing high: ' + q.swingHigh.toFixed(dp));
+      lines.push('10-day swing low: ' + q.swingLow.toFixed(dp));
+    }
+    if(q.ts) lines.push('Quote refreshed: ' + q.ts);
+    if(q.bars && q.bars.length){
+      lines.push('Last daily closes: ' + q.bars.slice(0,5).map(b => b.date + '=' + b.c.toFixed(dp)).join(', '));
+    }
+    return lines.join('\n');
+  }
+
+  async function refreshWatchQuotesasync function refreshWatchQuotes(){
     const box = document.getElementById('quoteBox');
     if(!box) return;
     const pairs = watchConfig.pairs || [];
@@ -2488,6 +2590,7 @@ Based on the current move and levels, give short bullet tips a discretionary tra
           let m = '';
           if(q.changePct != null) m += (q.changePct>=0?'+':'')+q.changePct.toFixed(2)+'% d/d';
           if(q.low != null && q.high != null) m += (m?' · ':'')+'L '+q.low.toFixed(p.includes('JPY')?2:4)+' H '+q.high.toFixed(p.includes('JPY')?2:4);
+          if(q.location) m += (m?' · ':'') + (q.location.includes('near day high')?'near high':q.location.includes('near day low')?'near low':q.location.includes('upper')?'upper half':q.location.includes('lower')?'lower half':'mid');
           metaEl.textContent = m || 'tap to analyze';
         }else{
           rateEl.textContent = '—';
