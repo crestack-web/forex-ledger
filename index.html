@@ -262,6 +262,27 @@
     .theme-toggle{ top:14px; right:14px; width:32px; height:32px; }
   }
 
+
+  .calc-box{
+    background:var(--surface-2); border:1px solid var(--line); border-radius:3px;
+    padding:16px 18px; margin-top:8px;
+  }
+  .calc-box .calc-row{
+    display:flex; justify-content:space-between; align-items:baseline;
+    padding:6px 0; border-bottom:1px solid var(--line); font-size:13.5px;
+  }
+  .calc-box .calc-row:last-child{ border-bottom:none; padding-top:10px; }
+  .calc-box .calc-label{ color:var(--dim); font-family:'IBM Plex Mono', monospace; font-size:10.5px; letter-spacing:.06em; text-transform:uppercase; }
+  .calc-box .calc-val{ font-family:'Fraunces', serif; font-size:18px; font-variant-numeric:tabular-nums; }
+  .calc-box .calc-val.big{ font-size:22px; }
+  .risk-live{
+    margin-top:10px; padding:12px 14px; background:var(--surface-2); border:1px solid var(--line);
+    border-radius:3px; font-size:12.5px; color:var(--chalk-dim); line-height:1.6;
+    display:none;
+  }
+  .risk-live.show{ display:block; }
+  .risk-live strong{ color:var(--chalk); font-family:'Fraunces', serif; font-size:15px; }
+
   @media (prefers-reduced-motion: reduce){
     *{ animation:none !important; transition:none !important; }
   }
@@ -314,6 +335,7 @@
         <button class="btn-ghost" data-filter="win">Wins</button>
         <button class="btn-ghost" data-filter="loss">Losses</button>
       </div>
+      <button class="btn-ghost" id="openCalc">Risk calc</button>
       <button class="btn-primary" id="openAdd">+ Log trade</button>
     </div>
   </div>
@@ -458,6 +480,8 @@
       </div>
     </div>
 
+    <div class="risk-live" id="tradeRiskLive"></div>
+
     <div class="field full" style="margin-bottom:14px;">
       <label>Reason for the trade</label>
       <textarea id="f_thesis" placeholder="What set this up — the level, the structure, the catalyst."></textarea>
@@ -487,6 +511,84 @@
 
 <div class="overlay" id="detailOverlay">
   <div class="modal" id="detailModal"></div>
+</div>
+
+
+<!-- Risk / Pip Calculator -->
+<div class="overlay" id="calcOverlay">
+  <div class="modal">
+    <h2>Risk &amp; pip calculator</h2>
+    <div class="modal-sub">Size the trade so your stop is a fixed dollar risk and a clear % of equity.</div>
+
+    <div class="form-grid">
+      <div class="field">
+        <label>Account balance ($)</label>
+        <input id="c_balance" type="number" step="any" placeholder="10000" />
+      </div>
+      <div class="field">
+        <label>Risk per trade (%)</label>
+        <input id="c_riskPct" type="number" step="0.1" value="1" placeholder="1" />
+      </div>
+      <div class="field">
+        <label>Pair</label>
+        <select id="c_pair">
+          <option>EUR/USD</option>
+          <option>GBP/USD</option>
+          <option>USD/JPY</option>
+          <option>USD/CHF</option>
+          <option>AUD/USD</option>
+          <option>USD/CAD</option>
+          <option>NZD/USD</option>
+          <option>EUR/GBP</option>
+          <option>EUR/JPY</option>
+          <option>GBP/JPY</option>
+          <option>AUD/JPY</option>
+          <option>XAU/USD</option>
+          <option>XAG/USD</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Direction</label>
+        <div class="side-toggle">
+          <button type="button" class="side-btn sel-long on" id="c_long">Long</button>
+          <button type="button" class="side-btn sel-short" id="c_short">Short</button>
+        </div>
+      </div>
+      <div class="field">
+        <label>Entry price</label>
+        <input id="c_entry" type="number" step="any" placeholder="0.00000" />
+      </div>
+      <div class="field">
+        <label>Stop loss</label>
+        <input id="c_sl" type="number" step="any" placeholder="0.00000" />
+      </div>
+      <div class="field">
+        <label>Take profit (optional)</label>
+        <input id="c_tp" type="number" step="any" placeholder="Optional" />
+      </div>
+      <div class="field">
+        <label>Or: SL distance (pips)</label>
+        <input id="c_slPips" type="number" step="0.1" placeholder="e.g. 20" />
+      </div>
+    </div>
+
+    <div class="calc-box" id="calcResults">
+      <div class="calc-row"><span class="calc-label">Stop distance</span><span class="calc-val" id="cr_pips">—</span></div>
+      <div class="calc-row"><span class="calc-label">Risk amount ($)</span><span class="calc-val" id="cr_riskUsd">—</span></div>
+      <div class="calc-row"><span class="calc-label">Risk of account</span><span class="calc-val" id="cr_riskPct">—</span></div>
+      <div class="calc-row"><span class="calc-label">Pip value / lot</span><span class="calc-val" id="cr_pipVal">—</span></div>
+      <div class="calc-row"><span class="calc-label">Recommended lots</span><span class="calc-val big up" id="cr_lots">—</span></div>
+      <div class="calc-row"><span class="calc-label">R : R (if TP set)</span><span class="calc-val" id="cr_rr">—</span></div>
+    </div>
+
+    <div class="modal-actions">
+      <button class="link-btn" id="calcClose">Close</button>
+      <div class="right-actions">
+        <button class="btn-ghost" id="calcUseLots">Use lots in new trade</button>
+        <button class="btn-primary" id="calcRun">Calculate</button>
+      </div>
+    </div>
+  </div>
 </div>
 
 <div class="overlay" id="accountOverlay">
@@ -604,12 +706,116 @@
     return +(diff * 10000).toFixed(1);
   }
 
+  // Approximate USD pip value per 1.0 standard lot (100k). Good enough for sizing.
+  // For non-USD quote pairs this is an approximation; override P&L on the trade if needed.
+  function pipValuePerLot(pair){
+    if(!pair) return 10;
+    if(pair.includes('XAU')) return 1;      // $1 per 0.1 move ≈ $1/pip at 0.1 pip scale we use
+    if(pair.includes('XAG')) return 50;     // rough
+    if(pair === 'USD/JPY' || pair.endsWith('/JPY') && pair.startsWith('USD')) return 9.09; // ~10000/JPY rate
+    if(pair.includes('JPY')) return 6.5;    // cross approx
+    if(pair.startsWith('USD/')) return 10;  // USD base, quote varies — still ~$10 for many
+    // XXX/USD pairs: standard $10 per pip per lot
+    return 10;
+  }
+
   function calcPnL(pips, lots, pair){
     if(pips == null || !lots) return 0;
-    let pipValue = 10;
-    if(isJPY(pair)) pipValue = 9.1;
-    if(isMetal(pair) && pair.includes('XAU')) pipValue = 1;
-    return +(pips * lots * pipValue).toFixed(2);
+    return +(pips * lots * pipValuePerLot(pair)).toFixed(2);
+  }
+
+  function stopPips(entry, sl, side, pair){
+    if(isNaN(entry) || isNaN(sl)) return null;
+    // distance is always absolute for risk; side only for direction sanity
+    let diff = Math.abs(entry - sl);
+    if(isJPY(pair)) return +(diff * 100).toFixed(1);
+    if(isMetal(pair)) return +(diff * 10).toFixed(1);
+    return +(diff * 10000).toFixed(1);
+  }
+
+  let calcSide = 'long';
+  function runRiskCalc(){
+    const bal = parseFloat(document.getElementById('c_balance').value) || accountSize || 0;
+    const riskPct = parseFloat(document.getElementById('c_riskPct').value) || 0;
+    const pair = document.getElementById('c_pair').value;
+    const entry = parseFloat(document.getElementById('c_entry').value);
+    const sl = parseFloat(document.getElementById('c_sl').value);
+    const tp = parseFloat(document.getElementById('c_tp').value);
+    let pips = parseFloat(document.getElementById('c_slPips').value);
+
+    if((isNaN(pips) || pips <= 0) && !isNaN(entry) && !isNaN(sl)){
+      pips = stopPips(entry, sl, calcSide, pair);
+      if(pips != null) document.getElementById('c_slPips').value = pips;
+    }
+
+    const riskUsd = bal * (riskPct / 100);
+    const pv = pipValuePerLot(pair);
+
+    document.getElementById('cr_pips').textContent = (pips && pips > 0) ? (pips + ' pips') : '—';
+    document.getElementById('cr_riskUsd').textContent = bal ? fmtMoney(riskUsd).replace('+','') : 'Set balance';
+    document.getElementById('cr_riskUsd').className = 'calc-val';
+    document.getElementById('cr_riskPct').textContent = riskPct ? (riskPct.toFixed(2) + '%') : '—';
+    document.getElementById('cr_pipVal').textContent = '$' + pv.toFixed(2) + ' / lot';
+
+    let lots = null;
+    if(pips > 0 && riskUsd > 0 && pv > 0){
+      lots = riskUsd / (pips * pv);
+      document.getElementById('cr_lots').textContent = lots.toFixed(2) + ' lots';
+      document.getElementById('cr_lots').className = 'calc-val big up';
+    }else{
+      document.getElementById('cr_lots').textContent = '—';
+      document.getElementById('cr_lots').className = 'calc-val big';
+    }
+
+    // R:R
+    if(!isNaN(entry) && !isNaN(sl) && !isNaN(tp) && pips > 0){
+      const rewardPips = stopPips(entry, tp, calcSide, pair);
+      if(rewardPips > 0){
+        const rr = (rewardPips / pips).toFixed(2);
+        document.getElementById('cr_rr').textContent = '1 : ' + rr;
+      }else document.getElementById('cr_rr').textContent = '—';
+    }else document.getElementById('cr_rr').textContent = '—';
+
+    return lots;
+  }
+
+  function updateTradeRiskLive(){
+    const el = document.getElementById('tradeRiskLive');
+    if(!el) return;
+    const entry = parseFloat(document.getElementById('f_entry').value);
+    const sl = parseFloat(document.getElementById('f_sl').value);
+    const size = parseFloat(document.getElementById('f_size').value);
+    const riskPctField = parseFloat(document.getElementById('f_risk').value);
+    const pair = (typeof getPair === 'function') ? getPair() : document.getElementById('f_instrument').value;
+    if(!pair || pair === 'other'){ el.classList.remove('show'); return; }
+
+    const pips = (!isNaN(entry) && !isNaN(sl)) ? stopPips(entry, sl, currentSide, pair) : null;
+    const pv = pipValuePerLot(pair);
+
+    let parts = [];
+    if(pips != null && pips > 0){
+      parts.push('Stop: <strong>' + pips + ' pips</strong>');
+    }
+    if(pips != null && pips > 0 && size > 0){
+      const riskUsd = pips * size * pv;
+      const pct = accountSize ? (riskUsd / accountSize * 100) : null;
+      parts.push('Risk: <strong>' + fmtMoney(riskUsd).replace('+','') + '</strong>');
+      if(pct != null) parts.push('<strong>' + pct.toFixed(2) + '%</strong> of account');
+    }else if(riskPctField > 0 && accountSize){
+      const riskUsd = accountSize * (riskPctField / 100);
+      parts.push('Target risk: <strong>' + fmtMoney(riskUsd).replace('+','') + '</strong> (' + riskPctField + '%)');
+      if(pips != null && pips > 0){
+        const lots = riskUsd / (pips * pv);
+        parts.push('→ size <strong>' + lots.toFixed(2) + ' lots</strong>');
+      }
+    }
+
+    if(parts.length){
+      el.innerHTML = parts.join(' · ');
+      el.classList.add('show');
+    }else{
+      el.classList.remove('show');
+    }
   }
 
   async function loadTrades(){
@@ -1080,6 +1286,56 @@
     accountOverlay.classList.remove('show');
     render();
   });
+
+
+  // Risk calculator UI
+  document.getElementById('openCalc').addEventListener('click', ()=>{
+    document.getElementById('c_balance').value = accountSize || '';
+    document.getElementById('calcOverlay').classList.add('show');
+    runRiskCalc();
+  });
+  document.getElementById('calcClose').addEventListener('click', ()=> document.getElementById('calcOverlay').classList.remove('show'));
+  document.getElementById('calcOverlay').addEventListener('click', (e)=>{ if(e.target.id==='calcOverlay') document.getElementById('calcOverlay').classList.remove('show'); });
+  document.getElementById('calcRun').addEventListener('click', runRiskCalc);
+  ['c_balance','c_riskPct','c_pair','c_entry','c_sl','c_tp','c_slPips'].forEach(id=>{
+    document.getElementById(id).addEventListener('input', runRiskCalc);
+    document.getElementById(id).addEventListener('change', runRiskCalc);
+  });
+  document.getElementById('c_long').addEventListener('click', ()=>{
+    calcSide = 'long';
+    document.getElementById('c_long').classList.add('on');
+    document.getElementById('c_short').classList.remove('on');
+    runRiskCalc();
+  });
+  document.getElementById('c_short').addEventListener('click', ()=>{
+    calcSide = 'short';
+    document.getElementById('c_short').classList.add('on');
+    document.getElementById('c_long').classList.remove('on');
+    runRiskCalc();
+  });
+  document.getElementById('calcUseLots').addEventListener('click', ()=>{
+    const lots = runRiskCalc();
+    document.getElementById('calcOverlay').classList.remove('show');
+    resetForm();
+    if(lots != null) document.getElementById('f_size').value = lots.toFixed(2);
+    const pair = document.getElementById('c_pair').value;
+    const pairs = ['EUR/USD','GBP/USD','USD/JPY','USD/CHF','AUD/USD','USD/CAD','NZD/USD','EUR/GBP','EUR/JPY','GBP/JPY','AUD/JPY','XAU/USD','XAG/USD'];
+    if(pairs.includes(pair)) document.getElementById('f_instrument').value = pair;
+    document.getElementById('f_entry').value = document.getElementById('c_entry').value;
+    document.getElementById('f_sl').value = document.getElementById('c_sl').value;
+    document.getElementById('f_tp').value = document.getElementById('c_tp').value;
+    document.getElementById('f_risk').value = document.getElementById('c_riskPct').value;
+    setSide(calcSide);
+    updateTradeRiskLive();
+    overlay.classList.add('show');
+  });
+
+  ['f_entry','f_exit','f_sl','f_tp','f_size','f_risk'].forEach(id=>{
+    const node = document.getElementById(id);
+    if(node){ node.addEventListener('input', updateTradeRiskLive); node.addEventListener('change', updateTradeRiskLive); }
+  });
+  document.getElementById('f_instrument').addEventListener('change', updateTradeRiskLive);
+
 
   loadTrades();
 })();
