@@ -904,14 +904,11 @@
         <input type="file" id="azFile" accept="image/*" style="display:none;" />
         <div class="shot-preview" id="azPreview"></div>
       </div>
-      <div class="field full">
-        <label>Mistral API key (optional if MISTRAL_API_KEY is set on Vercel)</label>
-        <input id="az_mistral" type="password" placeholder="Leave empty for local checklist only" autocomplete="off" />
-      </div>
+      <input id="az_mistral" type="hidden" value="" />
     </div>
 
     <div class="analyze-out" id="azOut"></div>
-    <p class="disclaimer">Not financial advice. AI can misread charts. Use only as a second pair of eyes against your playbook. API key is visible to scripts on this origin — fine for personal use, not for a shared PC.</p>
+    <p class="disclaimer">Not financial advice. AI can misread charts. Use only as a second pair of eyes against your playbook.</p>
 
     <div class="modal-actions">
       <button class="link-btn" id="analyzeClose">Close</button>
@@ -2191,7 +2188,7 @@
       }
       if(proxy.status === 500){
         const err = await proxy.json().catch(()=>({}));
-        if(err.error && String(err.error).includes('MISTRAL_API_KEY')){
+        if(err.error && String(err.error).includes('API_KEY') || String(err.error).includes('not set')){
           /* fall through to client key */
         } else if(err.error){
           throw new Error(err.error);
@@ -2201,7 +2198,7 @@
       if(e.message && !e.message.includes('Failed to fetch') && !e.message.includes('NetworkError')) throw e;
     }
     const key = document.getElementById('az_mistral').value.trim() || (await storageGet(MISTRAL_KEY)) || '';
-    if(!key) throw new Error('Set MISTRAL_API_KEY on Vercel, or paste a Mistral key in Analyzer.');
+    if(!key) throw new Error('AI is not configured. Deploy with a server key, or paste a key below.');
     const model = hasImage ? 'pixtral-12b-2409' : 'mistral-small-latest';
     const res = await fetch('https://api.mistral.ai/v1/chat/completions', {
       method: 'POST',
@@ -2292,7 +2289,7 @@ Based on the current move and levels, give short bullet tips a discretionary tra
     }catch(err){
       document.getElementById('azOut').textContent =
         (market ? 'MARKET\n'+market+'\n\n' : '') +
-        'Tips failed: '+err.message+'\nUse Checklist only, or set MISTRAL_API_KEY on Vercel.';
+        'Tips failed: '+err.message+'\nTry Checklist only, or check server AI configuration.';
     }
   }
   document.getElementById('azRun').addEventListener('click', runMistral);
