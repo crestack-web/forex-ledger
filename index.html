@@ -264,6 +264,19 @@
   .modal-sm{ max-width:420px; }
   .modal-lg{ max-width:680px; }
 
+
+  .trade-side.tp, .badge-tp{ color:var(--green); border-color:var(--green-dim); }
+  .trade-side.sl, .badge-sl{ color:var(--red); border-color:var(--red-dim); }
+  .trade-side.be, .badge-be{ color:var(--gold); border-color:var(--gold-dim); }
+  .closed-badge{
+    font-family:'IBM Plex Mono', monospace; font-size:10.5px; letter-spacing:.08em; text-transform:uppercase;
+    padding:2px 7px; border-radius:2px; border:1px solid var(--line); color:var(--dim);
+  }
+  .closed-badge.tp{ color:var(--green); border-color:var(--green-dim); }
+  .closed-badge.sl{ color:var(--red); border-color:var(--red-dim); }
+  .closed-badge.be{ color:var(--gold); border-color:var(--gold-dim); }
+  .closed-badge.manual, .closed-badge.partial{ color:var(--chalk-dim); border-color:var(--line); }
+
   /* ── Mobile: modals become full pages, no overflow ── */
   @media (max-width: 720px){
     .wrap{ padding:20px 16px 100px; }
@@ -454,6 +467,9 @@
         <button class="btn-ghost active" data-filter="all">All</button>
         <button class="btn-ghost" data-filter="win">Wins</button>
         <button class="btn-ghost" data-filter="loss">Losses</button>
+        <button class="btn-ghost" data-filter="TP">TP</button>
+        <button class="btn-ghost" data-filter="SL">SL</button>
+        <button class="btn-ghost" data-filter="BE">BE</button>
       </div>
       <button class="btn-ghost" id="openCalc">Risk calc</button>
       <button class="btn-ghost" id="openPlaybook">Playbook</button>
@@ -599,6 +615,17 @@
           <option>Revenge</option>
           <option>Frustrated</option>
           <option>Excited</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Closed by</label>
+        <select id="f_closedBy">
+          <option value="">—</option>
+          <option value="TP">Take profit (TP)</option>
+          <option value="SL">Stop loss (SL)</option>
+          <option value="BE">Break even (BE)</option>
+          <option value="Manual">Manual close</option>
+          <option value="Partial">Partial / scaled</option>
         </select>
       </div>
     </div>
@@ -1127,6 +1154,7 @@
     let list = trades.slice().sort((a,b)=> new Date(b.date) - new Date(a.date));
     if(currentFilter==='win') list = list.filter(t=>Number(t.pnl)>0);
     if(currentFilter==='loss') list = list.filter(t=>Number(t.pnl)<0);
+    if(currentFilter==='TP' || currentFilter==='SL' || currentFilter==='BE') list = list.filter(t=>t.closedBy===currentFilter);
 
     if(!list.length){
       log.innerHTML = `<div class="empty">
@@ -1156,6 +1184,7 @@
           ${t.exit ? `<span>Exit ${t.exit}</span>` : ''}
           ${t.size ? `<span>${t.size} lots</span>` : ''}
           ${t.pips != null ? `<span>${t.pips > 0 ? '+' : ''}${t.pips} pips</span>` : ''}
+          ${t.closedBy ? `<span class="closed-badge ${String(t.closedBy).toLowerCase()}">${t.closedBy}</span>` : ''}
           ${t.strategy ? `<span>${escapeHtml(t.strategy)}</span>` : ''}
           ${accountSize ? `<span class="${isWin?'up':isLoss?'down':''}">${pctOfAccount(t.pnl)}</span>` : ''}
         </div>
@@ -1302,6 +1331,8 @@
     document.getElementById('f_session').value = '';
     document.getElementById('f_tf').value = '';
     document.getElementById('f_emotion').value = '';
+    document.getElementById('f_closedBy').value = '';
+    const _cb = document.getElementById('f_closedBy'); if(_cb) delete _cb.dataset.touched;
     document.getElementById('f_thesis').value = '';
     document.getElementById('f_notes').value = '';
     document.getElementById('deleteBtn').style.display = 'none';
@@ -1347,9 +1378,17 @@
       if(pips != null){
         document.getElementById('f_pips').value = pips;
         document.getElementById('f_pnl').value = calcPnL(pips, size, pair);
+        // Suggest closed-by only if user hasn't set it
+        const cb = document.getElementById('f_closedBy');
+        if(cb && !cb.dataset.touched){
+          if(Math.abs(pips) < 0.5) cb.value = 'BE';
+          else if(pips > 0) cb.value = 'TP';
+          else cb.value = 'SL';
+        }
       }
     }
   }
+  document.getElementById('f_closedBy').addEventListener('change', function(){ this.dataset.touched = '1'; });
   ['f_entry','f_exit','f_size'].forEach(id=>{
     document.getElementById(id).addEventListener('input', autoCalc);
   });
@@ -1408,6 +1447,7 @@
       session: document.getElementById('f_session').value,
       tf: document.getElementById('f_tf').value,
       emotion: document.getElementById('f_emotion').value,
+      closedBy: document.getElementById('f_closedBy').value,
       thesis: document.getElementById('f_thesis').value.trim(),
       notes: document.getElementById('f_notes').value.trim(),
       shots: currentShots.slice()
@@ -1456,6 +1496,7 @@
         ${t.session ? `<span>${t.session}</span>` : ''}
         ${t.tf ? `<span>${t.tf}</span>` : ''}
         ${t.emotion ? `<span>${t.emotion}</span>` : ''}
+        ${t.closedBy ? `<span class="closed-badge ${String(t.closedBy).toLowerCase()}">${t.closedBy === 'TP' ? 'Hit TP' : t.closedBy === 'SL' ? 'Hit SL' : t.closedBy === 'BE' ? 'Break even' : t.closedBy}</span>` : ''}
         ${accountSize ? `<span class="${isWin?'up':isLoss?'down':''}">${pctOfAccount(t.pnl)}</span>` : ''}
       </div>
       ${t.thesis ? `<div class="field full" style="margin-bottom:12px;"><label>Reason</label><p style="color:var(--chalk-dim); font-size:13.5px; line-height:1.6; margin-top:4px;">${escapeHtml(t.thesis)}</p></div>` : ''}
@@ -1506,6 +1547,9 @@
     document.getElementById('f_session').value = t.session || '';
     document.getElementById('f_tf').value = t.tf || '';
     document.getElementById('f_emotion').value = t.emotion || '';
+    document.getElementById('f_closedBy').value = t.closedBy || '';
+    const _cbEdit = document.getElementById('f_closedBy');
+    if(_cbEdit){ if(t.closedBy) _cbEdit.dataset.touched = '1'; else delete _cbEdit.dataset.touched; }
     document.getElementById('f_thesis').value = t.thesis || '';
     document.getElementById('f_notes').value = t.notes || '';
     document.getElementById('deleteBtn').style.display = 'inline';
@@ -1731,7 +1775,7 @@
   }
 
   function tradesToCsv(list){
-    const headers = ['date','instrument','side','entry','exit','sl','tp','size','pips','pnl','risk','strategy','session','tf','emotion','thesis','notes'];
+    const headers = ['date','instrument','side','entry','exit','sl','tp','size','pips','pnl','risk','closedBy','strategy','session','tf','emotion','thesis','notes'];
     const esc = v => {
       const s = v == null ? '' : String(v);
       if(/[",\n]/.test(s)) return '"'+s.replace(/"/g,'""')+'"';
